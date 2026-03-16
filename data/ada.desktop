@@ -1,0 +1,15 @@
+[Desktop Entry]
+Name=Ada
+Name[zh_CN]=Ada 助手
+Comment=AI Assistant for NebulaOS
+Comment[zh_CN]=NebulaOS AI 助手
+Exec=ada-gui
+Icon=ada
+Terminal=false
+Type=Application
+Categories=GNOME;GTK;Utility;Accessibility;
+StartupNotify=true
+DBusActivatable=true
+X-GNOME-UsesNotifications=true
+X-GNOME-SingleWindow=true
+Keywords=AI;Assistant;Automation;Accessibility;

@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="gnome-shell-extensions">
+    <schema id="org.gnome.shell.extensions.ada" path="/org/gnome/shell/extensions/ada/">
+        <!-- General -->
+        <key name="enabled" type="b">
+            <default>true</default>
+            <summary>Enable Ada</summary>
+            <description>Show Ada in the system tray</description>
+        </key>
+
+        <key name="toggle-ada" type="as">
+            <default><![CDATA[['<Super>a']]]></default>
+            <summary>Toggle Ada shortcut</summary>
+            <description>Keyboard shortcut to toggle the Ada popup</description>
+        </key>
+
+        <!-- Behavior -->
+        <key name="autostart" type="b">
+            <default>true</default>
+            <summary>Start Automatically</summary>
+            <description>Start Ada when you log in</description>
+        </key>
+
+        <key name="show-notifications" type="b">
+            <default>true</default>
+            <summary>Show Notifications</summary>
+            <description>Display notifications for responses</description>
+        </key>
+
+        <key name="input-history" type="as">
+            <default>[]</default>
+            <summary>Input History</summary>
+            <description>Recent input history</description>
+        </key>
+
+        <!-- LLM Settings -->
+        <key name="llm-backend" type="i">
+            <default>0</default>
+            <summary>LLM Backend</summary>
+            <description>LLM backend index (0=Ollama, 1=OpenAI, 2=Anthropic)</description>
+        </key>
+
+        <key name="llm-model" type="s">
+            <default>'llama3.2'</default>
+            <summary>LLM Model</summary>
+            <description>Model to use for inference</description>
+        </key>
+
+        <key name="ollama-url" type="s">
+            <default>'http://localhost:11434'</default>
+            <summary>Ollama URL</summary>
+            <description>Ollama server URL</description>
+        </key>
+    </schema>
+</schemalist>

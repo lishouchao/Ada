@@ -1,0 +1,9 @@
+{
+    "uuid": "ada@nebula.org",
+    "name": "Ada AI Assistant",
+    "description": "Quick access to Ada AI assistant from the system tray",
+    "version": 1,
+    "shell-version": ["45", "46", "47"],
+    "url": "https://github.com/nebula/ada",
+    "settings-schema": "org.gnome.shell.extensions.ada"
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Letter A stylized -->
+  <path d="M8 2 L12 14 L10 14 L9 11 L7 11 L6 14 L4 14 L8 2 Z M8 5 L7.5 9 L8.5 9 L8 5 Z"
+        fill="currentColor"
+        opacity="0.8"/>
+
+  <!-- AI indicator dots -->
+  <circle cx="5" cy="14" r="1" fill="currentColor" opacity="0.5"/>
+  <circle cx="8" cy="14" r="1" fill="currentColor" opacity="0.7"/>
+  <circle cx="11" cy="14" r="1" fill="currentColor" opacity="0.5"/>
+</svg>

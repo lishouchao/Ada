@@ -1,0 +1,58 @@
+/**
+ * Ada Extension Stylesheet
+ */
+
+/* Input box */
+.ada-input-box {
+    padding: 8px 12px;
+    spacing: 8px;
+}
+
+.ada-input-box StEntry {
+    min-width: 250px;
+}
+
+/* Response area */
+.ada-response-area {
+    padding: 12px;
+    margin: 8px;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Status indicator */
+.ada-status {
+    font-size: 0.9em;
+    color: rgba(255, 255, 255, 0.6);
+    padding: 4px 8px;
+}
+
+.ada-status.connected {
+    color: rgba(100, 255, 100, 0.8);
+}
+
+.ada-status.disconnected {
+    color: rgba(255, 100, 100, 0.8);
+}
+
+/* Quick action buttons */
+.ada-quick-action {
+    padding: 8px 16px;
+    border-radius: 8px;
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.ada-quick-action:hover {
+    background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Thinking animation */
+.ada-thinking {
+    animation: ada-pulse 1.5s infinite;
+}
+
+@keyframes ada-pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}

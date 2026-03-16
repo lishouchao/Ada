@@ -1,0 +1,298 @@
+"""
+Main Window - Primary UI for Ada
+"""
+
+import gi
+gi.require_version('Gtk', '4.0')
+gi.require_version('Adw', '1')
+
+from gi.repository import Gtk, Adw, GLib, Gdk, Pango
+
+import asyncio
+import logging
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+
+logger = logging.getLogger(__name__)
+
+
+class Message:
+    """A chat message"""
+
+    def __init__(self, content: str, is_user: bool, timestamp: datetime = None):
+        self.content = content
+        self.is_user = is_user
+        self.timestamp = timestamp or datetime.now()
+        self.thinking: Optional[str] = None
+
+
+class MessageRow(Gtk.ListBoxRow):
+    """A row in the message list"""
+
+    def __init__(self, message: Message):
+        super().__init__()
+        self.message = message
+
+        # Create message bubble
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=6,
+            margin_start=12,
+            margin_end=12,
+            margin_top=6,
+            margin_bottom=6,
+        )
+
+        # Message content
+        label = Gtk.Label(
+            label=message.content,
+            wrap=True,
+            wrap_mode=Pango.WrapMode.WORD_CHAR,
+            xalign=0 if not message.is_user else 1,
+        )
+
+        # Style based on sender
+        if message.is_user:
+            box.add_css_class("ada-message")
+            box.add_css_class("ada-user-message")
+            label.set_halign(Gtk.Align.END)
+        else:
+            box.add_css_class("ada-message")
+            box.add_css_class("ada-assistant-message")
+            label.set_halign(Gtk.Align.START)
+
+        box.append(label)
+
+        # Thinking indicator
+        if message.thinking:
+            thinking_label = Gtk.Label(
+                label=message.thinking,
+                wrap=True,
+                xalign=0,
+            )
+            thinking_label.add_css_class("ada-thinking")
+            box.append(thinking_label)
+
+        self.set_child(box)
+
+
+class MainWindow(Adw.ApplicationWindow):
+    """
+    Main application window for Ada.
+
+    Features:
+    - Chat interface
+    - Message history
+    - Input field with voice option
+    - Status indicator
+    """
+
+    def __init__(self, app, agent=None):
+        super().__init__(application=app, title="Ada")
+
+        self.agent = agent
+        self._messages: List[Message] = []
+
+        # Window setup
+        self.set_default_size(600, 700)
+        self.set_size_request(400, 500)
+
+        # Build UI
+        self._build_ui()
+
+        # Load saved state
+        self._load_state()
+
+    def _build_ui(self):
+        """Build the user interface"""
+        # Main layout
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
+        # Header bar
+        header = Adw.HeaderBar()
+        header.set_title_widget(Adw.WindowTitle(title="Ada", subtitle="AI Assistant"))
+
+        # Menu button
+        menu = Gio.Menu()
+        menu.append("Preferences", "app.preferences")
+        menu.append("About", "app.about")
+        menu_button = Gtk.MenuButton(menu_model=menu)
+        header.pack_end(menu_button)
+
+        # Status indicator
+        self._status_icon = Gtk.Image(icon_name="user-available-symbolic")
+        header.pack_end(self._status_icon)
+
+        main_box.append(header)
+
+        # Content area with chat
+        content = Adw.Clamp(maximum_size=800)
+
+        # Message list
+        self._message_list = Gtk.ListBox(
+            selection_mode=Gtk.SelectionMode.NONE,
+            valign=Gtk.Align.END,
+        )
+        self._message_list.add_css_class("rich-list")
+
+        # Scroll view for messages
+        scroll = Gtk.ScrolledWindow(
+            vexpand=True,
+            hscrollbar_policy=Gtk.PolicyType.NEVER,
+        )
+        scroll.set_child(self._message_list)
+
+        content.set_child(scroll)
+        main_box.append(content)
+
+        # Input area
+        input_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL,
+            spacing=6,
+            margin_start=12,
+            margin_end=12,
+            margin_top=6,
+            margin_bottom=6,
+        )
+
+        # Input entry
+        self._input_entry = Gtk.Entry(
+            placeholder_text="Ask Ada anything...",
+            hexpand=True,
+        )
+        self._input_entry.connect("activate", self._on_send)
+        self._input_entry.connect("changed", self._on_input_changed)
+
+        input_box.append(self._input_entry)
+
+        # Voice button
+        self._voice_button = Gtk.Button(icon_name="audio-input-microphone-symbolic")
+        self._voice_button.set_tooltip_text("Voice input")
+        self._voice_button.connect("clicked", self._on_voice)
+        input_box.append(self._voice_button)
+
+        # Send button
+        self._send_button = Gtk.Button(
+            icon_name="go-next-symbolic",
+            sensitive=False,
+        )
+        self._send_button.set_tooltip_text("Send")
+        self._send_button.connect("clicked", self._on_send)
+        input_box.append(self._send_button)
+
+        main_box.append(input_box)
+
+        self.set_content(main_box)
+
+        # Welcome message
+        self._add_message(Message(
+            "你好！我是 Ada，你的 AI 助手。有什么可以帮助你的吗？",
+            is_user=False
+        ))
+
+    def _on_input_changed(self, entry):
+        """Handle input text changes"""
+        self._send_button.set_sensitive(bool(entry.get_text()))
+
+    def _on_send(self, widget):
+        """Send message"""
+        text = self._input_entry.get_text().strip()
+        if not text:
+            return
+
+        # Add user message
+        self._add_message(Message(text, is_user=True))
+
+        # Clear input
+        self._input_entry.set_text("")
+        self._send_button.set_sensitive(False)
+
+        # Process with agent
+        if self.agent:
+            asyncio.create_task(self._process_message(text))
+        else:
+            # Demo mode
+            self._add_message(Message(
+                "抱歉，我目前处于演示模式。请配置 LLM 后端以获得完整功能。",
+                is_user=False
+            ))
+
+    async def _process_message(self, text: str):
+        """Process message with agent"""
+        # Show thinking indicator
+        self._status_icon.set_icon_name("content-loading-symbolic")
+
+        try:
+            result = await self.agent.process(text)
+
+            # Add response
+            GLib.idle_add(
+                self._add_message,
+                Message(result.message, is_user=False)
+            )
+
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+            GLib.idle_add(
+                self._add_message,
+                Message(f"抱歉，处理消息时出错：{e}", is_user=False)
+            )
+
+        finally:
+            # Hide thinking indicator
+            GLib.idle_add(
+                self._status_icon.set_icon_name,
+                "user-available-symbolic"
+            )
+
+    def _on_voice(self, button):
+        """Handle voice input"""
+        # Toggle voice recording
+        if button.get_icon_name() == "audio-input-microphone-symbolic":
+            button.set_icon_name("media-playback-stop-symbolic")
+            # Start recording
+            asyncio.create_task(self._start_voice_recording())
+        else:
+            button.set_icon_name("audio-input-microphone-symbolic")
+            # Stop recording
+
+    async def _start_voice_recording(self):
+        """Start voice recording"""
+        # Placeholder for voice input
+        pass
+
+    def _add_message(self, message: Message):
+        """Add message to list"""
+        self._messages.append(message)
+        row = MessageRow(message)
+        self._message_list.append(row)
+
+        # Scroll to bottom
+        self._scroll_to_bottom()
+
+    def _scroll_to_bottom(self):
+        """Scroll message list to bottom"""
+        # Get last row
+        n_items = self._message_list.get_row_at_index(len(self._messages) - 1)
+        if n_items:
+            # Scroll adjustment
+            pass  # GTK4 handles this automatically
+
+    def _load_state(self):
+        """Load saved window state"""
+        # TODO: Load from GSettings
+        pass
+
+    def _save_state(self):
+        """Save window state"""
+        # TODO: Save to GSettings
+        pass
+
+    def do_close_request(self):
+        """Handle window close"""
+        self._save_state()
+        return False  # Allow close
+
+
+# Required import for Gio.Menu
+from gi.repository import Gio

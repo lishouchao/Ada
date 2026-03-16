@@ -1,0 +1,212 @@
+# Ada Configuration
+# Main configuration file for Ada AI Assistant
+
+# Agent settings
+agent:
+  name: "Ada"
+  version: "0.1.0"
+
+  # Operation mode: normal, focus, automation
+  mode: normal
+
+  # Language settings
+  language: zh-CN
+  fallback_language: en-US
+
+  # Response settings
+  response:
+    max_length: 1000
+    include_context: true
+    stream_responses: true
+
+# LLM settings
+llm:
+  # Backend: ollama, openai, anthropic
+  backend: ollama
+
+  # Model settings
+  model: llama3.2
+
+  # Ollama settings (for local inference)
+  ollama:
+    base_url: http://localhost:11434
+    timeout: 120
+
+  # OpenAI settings (for API)
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    model: gpt-4-turbo-preview
+    timeout: 60
+
+  # Generation parameters
+  params:
+    temperature: 0.7
+    top_p: 0.9
+    max_tokens: 2000
+
+  # Embedding settings
+  embedding:
+    model: nomic-embed-text
+    dimension: 768
+
+# Memory settings
+memory:
+  # Storage backend: sqlite, chromadb
+  backend: sqlite
+
+  # Database path
+  database_path: ~/.local/share/ada/memory.db
+
+  # Vector store settings
+  vector:
+    enabled: true
+    backend: chromadb
+    persist_directory: ~/.local/share/ada/vectors
+
+  # Retention settings
+  retention:
+    conversation_days: 30
+    semantic_days: 90
+    max_memories: 10000
+
+  # Importance threshold for long-term storage
+  importance_threshold: 0.6
+
+# Skill settings
+skills:
+  # Skill directories
+  directories:
+    - ~/.local/share/ada/skills
+    - /usr/share/ada/skills
+
+  # Auto-discover skills
+  auto_discover: true
+
+  # Skill permissions
+  default_permission: ask  # ask, allow, deny
+
+  # Builtin skills
+  builtin:
+    - file.organizer
+    - app.launcher
+
+# Perception settings
+perception:
+  # AT-SPI monitoring
+  atspi:
+    enabled: true
+    monitor_events: true
+    events:
+      - focus
+      - window:activate
+      - object:state-changed
+
+  # Screen capture
+  screen:
+    enabled: true
+    ocr_enabled: true
+    ocr_language: eng+chi_sim
+
+  # UI tree cache
+  cache_ttl: 5  # seconds
+
+# Execution settings
+execution:
+  # Execution path priority: api > dbus > cli > gui
+  backends:
+    api:
+      enabled: true
+      priority: 10
+    dbus:
+      enabled: true
+      priority: 20
+    cli:
+      enabled: true
+      priority: 30
+    gui:
+      enabled: true
+      priority: 40
+
+  # Timeout settings
+  default_timeout: 30
+  max_timeout: 300
+
+  # Sandboxing
+  sandbox:
+    enabled: true
+    network: false
+    read_only_paths:
+      - /usr
+      - /lib
+      - /etc/ssl
+
+# Security settings
+security:
+  # Permission mode: permissive, balanced, strict
+  mode: balanced
+
+  # Confirmation settings
+  destructive_actions_require_confirmation: true
+  system_actions_require_confirmation: true
+
+  # Audit logging
+  audit_log: true
+  audit_path: ~/.local/share/ada/audit.log
+
+# UI settings
+ui:
+  # Notification settings
+  notifications:
+    enabled: true
+    position: top-right
+    timeout: 5000
+
+  # GNOME Shell extension
+  extension:
+    enabled: true
+    shortcut: <Super>a
+
+  # GTK theme
+  theme: Adwaita
+  dark_mode: true
+
+# D-Bus settings
+dbus:
+  service_name: org.nebula.Ada
+  object_path: /org/nebula/Ada
+
+  # Allow external connections
+  allow_external: false
+
+# Logging settings
+logging:
+  level: INFO
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # File logging
+  file:
+    enabled: true
+    path: ~/.local/share/ada/ada.log
+    max_size: 10MB
+    backup_count: 5
+
+  # Console logging
+  console:
+    enabled: true
+    colorize: true
+
+# Performance settings
+performance:
+  # Cache settings
+  cache:
+    enabled: true
+    max_size: 100MB
+
+  # Async workers
+  workers: 4
+
+  # Rate limiting
+  rate_limit:
+    requests_per_minute: 60
+    tokens_per_minute: 10000
