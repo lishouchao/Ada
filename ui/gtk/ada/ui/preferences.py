@@ -367,18 +367,19 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.provider_settings_group.set_title(provider_names.get(provider_id, "Provider Settings"))
 
         # Update API key placeholder
-        api_key_hints = {
-            "openai": "sk-...",
-            "anthropic": "sk-ant-...",
-            "google": "AIza...",
-            "aliyun": "sk-...",
-            "deepseek": "sk-...",
-            "zhipu": "...",
-            "moonshot": "sk-...",
-        }
-        hint = api_key_hints.get(provider_id, "")
-        if hint:
-            self.api_key_row.set_placeholder_text(hint)
+        # Note: PasswordEntryRow doesn't support placeholder text in older libadwaita
+        # api_key_hints = {
+        #     "openai": "sk-...",
+        #     "anthropic": "sk-ant-...",
+        #     "google": "AIza...",
+        #     "aliyun": "sk-...",
+        #     "deepseek": "sk-...",
+        #     "zhipu": "...",
+        #     "moonshot": "sk-...",
+        # }
+        # hint = api_key_hints.get(provider_id, "")
+        # if hint:
+        #     # # self.api_key_row.set_placeholder_text(hint)  # Not supported  # Not supported
 
     def _on_category_changed(self, row, param):
         """Handle category selection change"""

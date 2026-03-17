@@ -17,6 +17,8 @@ import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +251,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._llm_config = load_llm_config()
 
         # Show loading state
-        self._status_icon.set_icon_name("content-loading-symbolic")
+        self._status_icon.set_from_icon_name("content-loading-symbolic")
         self._send_button.set_sensitive(False)
 
         # Process in background thread
@@ -263,7 +265,7 @@ class MainWindow(Adw.ApplicationWindow):
                 logger.error(f"LLM error: {e}")
                 GLib.idle_add(self._add_message, Message(f"❌ 错误: {e}", is_user=False))
             finally:
-                GLib.idle_add(self._status_icon.set_icon_name, "user-available-symbolic")
+                GLib.idle_add(self._status_icon.set_from_icon_name, "user-available-symbolic")
                 GLib.idle_add(self._send_button.set_sensitive, True)
 
         thread = threading.Thread(target=process_in_thread, daemon=True)
@@ -344,7 +346,7 @@ class MainWindow(Adw.ApplicationWindow):
     async def _process_message(self, text: str):
         """Process message with agent"""
         # Show thinking indicator
-        self._status_icon.set_icon_name("content-loading-symbolic")
+        self._status_icon.set_from_icon_name("content-loading-symbolic")
 
         try:
             result = await self.agent.process(text)
@@ -365,7 +367,7 @@ class MainWindow(Adw.ApplicationWindow):
         finally:
             # Hide thinking indicator
             GLib.idle_add(
-                self._status_icon.set_icon_name,
+                self._status_icon.set_from_icon_name,
                 "user-available-symbolic"
             )
 
