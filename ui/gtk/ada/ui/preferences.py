@@ -9,10 +9,32 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib
 
 import logging
+import json
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
+
+# Config file path
+CONFIG_DIR = Path.home() / ".config" / "ada"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+
+def load_config() -> Dict[str, Any]:
+    """Load configuration from file"""
+    if CONFIG_FILE.exists():
+        try:
+            return json.loads(CONFIG_FILE.read_text())
+        except Exception as e:
+            logger.warning(f"Failed to load config: {e}")
+    return {}
+
+
+def save_config(config: Dict[str, Any]):
+    """Save configuration to file"""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False))
+    logger.info(f"Config saved to {CONFIG_FILE}")
 
 # LLM Provider configurations
 PROVIDER_CATEGORIES = {
@@ -87,6 +109,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.app = app
         self._provider_settings: Dict[str, Dict[str, Any]] = {}
         self._initializing = True  # Flag to prevent signal handlers during init
+        self._config = load_config()  # Load existing config
 
         # Add pages
         self.add(self._build_general_page())
@@ -96,6 +119,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.add(self._build_security_page())
 
         self._initializing = False  # Done initializing
+        self._load_settings()  # Load saved values into widgets
 
     def _build_general_page(self) -> Adw.PreferencesPage:
         """Build general settings page"""
@@ -177,6 +201,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
             title="Model",
             subtitle="Select model to use",
         )
+        self.model_row.connect("notify::selected", self._on_model_changed)
         active_group.add(self.model_row)
 
         # Now update the provider list (which also updates model list)
@@ -192,12 +217,14 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.api_key_row = Adw.PasswordEntryRow(
             title="API Key",
         )
+        self.api_key_row.connect("changed", self._on_api_key_changed)
         self.provider_settings_group.add(self.api_key_row)
 
         # Base URL (for configurable providers)
         self.base_url_row = Adw.EntryRow(
             title="Base URL",
         )
+        self.base_url_row.connect("changed", self._on_base_url_changed)
         self.provider_settings_group.add(self.base_url_row)
 
         # Test connection button
@@ -224,6 +251,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.temperature_row.set_range(0.0, 2.0)
         self.temperature_row.set_value(0.7)
         self.temperature_row.set_digits(1)
+        self.temperature_row.connect("notify::value", self._on_param_changed)
         params_group.add(self.temperature_row)
 
         # Top P
@@ -234,6 +262,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.top_p_row.set_range(0.0, 1.0)
         self.top_p_row.set_value(0.9)
         self.top_p_row.set_digits(2)
+        self.top_p_row.connect("notify::value", self._on_param_changed)
         params_group.add(self.top_p_row)
 
         # Max tokens
@@ -243,6 +272,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         )
         self.max_tokens_row.set_range(100, 128000)
         self.max_tokens_row.set_value(4096)
+        self.max_tokens_row.connect("notify::value", self._on_param_changed)
         params_group.add(self.max_tokens_row)
 
         return params_group
@@ -352,18 +382,44 @@ class PreferencesWindow(Adw.PreferencesWindow):
 
     def _on_category_changed(self, row, param):
         """Handle category selection change"""
-        if getattr(self, '_initializing', False):
+        if self._initializing:
             return
         category = self._get_category_key(row.get_selected())
         self._update_provider_list(category)
         self._update_provider_settings()
+        self._save_settings()
 
     def _on_provider_changed(self, row, param):
         """Handle provider selection change"""
-        if getattr(self, '_initializing', False):
+        if self._initializing:
             return
         self._update_model_list()
         self._update_provider_settings()
+        self._save_settings()
+
+    def _on_model_changed(self, row, param):
+        """Handle model selection change"""
+        if self._initializing:
+            return
+        self._save_settings()
+
+    def _on_api_key_changed(self, entry):
+        """Handle API key change"""
+        if self._initializing:
+            return
+        self._save_settings()
+
+    def _on_base_url_changed(self, entry):
+        """Handle base URL change"""
+        if self._initializing:
+            return
+        self._save_settings()
+
+    def _on_param_changed(self, row, param):
+        """Handle generation parameter change"""
+        if self._initializing:
+            return
+        self._save_settings()
 
     def _on_test_connection(self, row):
         """Test connection to the provider"""
@@ -602,6 +658,58 @@ class PreferencesWindow(Adw.PreferencesWindow):
                 "max_tokens": int(self.max_tokens_row.get_value()),
             }
         }
+
+    def _load_settings(self):
+        """Load saved settings into widgets"""
+        llm_config = self._config.get("llm", {})
+
+        # Restore provider category
+        provider = llm_config.get("provider", "ollama")
+        category_map = {
+            "ollama": 0, "vllm": 0,
+            "openai": 1, "anthropic": 1, "google": 1,
+            "aliyun": 2, "deepseek": 2, "zhipu": 2, "moonshot": 2,
+            "baidu": 2, "siliconflow": 2
+        }
+        cat_idx = category_map.get(provider, 0)
+        self.category_row.set_selected(cat_idx)
+
+        # Restore API key
+        if llm_config.get("api_key"):
+            self.api_key_row.set_text(llm_config["api_key"])
+
+        # Restore parameters
+        params = llm_config.get("params", {})
+        if params.get("temperature"):
+            self.temperature_row.set_value(params["temperature"])
+        if params.get("top_p"):
+            self.top_p_row.set_value(params["top_p"])
+        if params.get("max_tokens"):
+            self.max_tokens_row.set_value(params["max_tokens"])
+
+    def _save_settings(self):
+        """Auto-save settings when changed"""
+        if self._initializing:
+            return
+
+        config = {
+            "llm": self.get_llm_config(),
+            "general": {
+                "dark_mode": hasattr(self, '_dark_mode_row') and self._dark_mode_row.get_active(),
+            }
+        }
+
+        try:
+            save_config(config)
+            # Show toast notification
+            toast = Adw.Toast.new("设置已保存")
+            toast.set_timeout(1)
+            self.add_toast(toast)
+        except Exception as e:
+            logger.error(f"Failed to save settings: {e}")
+            toast = Adw.Toast.new(f"保存失败: {e}")
+            toast.set_timeout(2)
+            self.add_toast(toast)
 
     def _get_selected_model(self) -> str:
         """Get currently selected model"""
