@@ -112,6 +112,12 @@ class MainWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title="Ada", subtitle="AI Assistant"))
 
+        # Settings button (LLM config)
+        settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        settings_btn.set_tooltip_text("LLM 设置")
+        settings_btn.connect("clicked", self._on_settings_clicked)
+        header.pack_end(settings_btn)
+
         # Menu button
         menu = Gio.Menu()
         menu.append("Preferences", "app.preferences")
@@ -119,9 +125,15 @@ class MainWindow(Adw.ApplicationWindow):
         menu_button = Gtk.MenuButton(menu_model=menu)
         header.pack_end(menu_button)
 
-        # Status indicator
+        # Status indicator with provider info
+        self._status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self._status_icon = Gtk.Image(icon_name="user-available-symbolic")
-        header.pack_end(self._status_icon)
+        self._status_label = Gtk.Label(label="Ollama · qwen2.5")
+        self._status_label.add_css_class("caption")
+        self._status_label.add_css_class("dim-label")
+        self._status_box.append(self._status_icon)
+        self._status_box.append(self._status_label)
+        header.pack_start(self._status_box)
 
         main_box.append(header)
 
@@ -255,6 +267,12 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             button.set_icon_name("audio-input-microphone-symbolic")
             # Stop recording
+
+    def _on_settings_clicked(self, button):
+        """Open LLM settings dialog"""
+        from ada.ui.preferences import PreferencesWindow
+        prefs = PreferencesWindow(self.get_application())
+        prefs.present()
 
     async def _start_voice_recording(self):
         """Start voice recording"""
