@@ -13,10 +13,10 @@ import logging
 import json
 import urllib.request
 import urllib.error
+import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -248,8 +248,26 @@ class MainWindow(Adw.ApplicationWindow):
         # Reload config in case it changed
         self._llm_config = load_llm_config()
 
-        # Process with LLM
-        asyncio.create_task(self._process_with_llm(text))
+        # Show loading state
+        self._status_icon.set_icon_name("content-loading-symbolic")
+        self._send_button.set_sensitive(False)
+
+        # Process in background thread
+        import threading
+
+        def process_in_thread():
+            try:
+                response = self._call_llm_sync(text)
+                GLib.idle_add(self._add_message, Message(response, is_user=False))
+            except Exception as e:
+                logger.error(f"LLM error: {e}")
+                GLib.idle_add(self._add_message, Message(f"❌ 错误: {e}", is_user=False))
+            finally:
+                GLib.idle_add(self._status_icon.set_icon_name, "user-available-symbolic")
+                GLib.idle_add(self._send_button.set_sensitive, True)
+
+        thread = threading.Thread(target=process_in_thread, daemon=True)
+        thread.start()
 
     def _update_status(self):
         """Update status label with current provider info"""
@@ -272,33 +290,8 @@ class MainWindow(Adw.ApplicationWindow):
         name = provider_names.get(provider, provider)
         self._status_label.set_text(f"{name} · {model}" if model else name)
 
-    async def _process_with_llm(self, text: str):
-        """Process message with configured LLM"""
-        self._status_icon.set_icon_name("content-loading-symbolic")
-
-        try:
-            response = await self._call_llm_api(text)
-
-            GLib.idle_add(
-                self._add_message,
-                Message(response, is_user=False)
-            )
-
-        except Exception as e:
-            logger.error(f"LLM error: {e}")
-            GLib.idle_add(
-                self._add_message,
-                Message(f"❌ 错误: {e}", is_user=False)
-            )
-
-        finally:
-            GLib.idle_add(
-                self._status_icon.set_icon_name,
-                "user-available-symbolic"
-            )
-
-    async def _call_llm_api(self, text: str) -> str:
-        """Call LLM API based on config"""
+    def _call_llm_sync(self, text: str) -> str:
+        """Call LLM API synchronously"""
         provider = self._llm_config.get("provider", "ollama")
         model = self._llm_config.get("model", "qwen2.5:latest")
         api_key = self._llm_config.get("api_key", "")
@@ -331,27 +324,22 @@ class MainWindow(Adw.ApplicationWindow):
             "max_tokens": params.get("max_tokens", 4096),
         }
 
-        # Run HTTP request in thread pool to avoid blocking
-        loop = asyncio.get_event_loop()
+        req = urllib.request.Request(
+            api_url,
+            data=json.dumps(payload).encode('utf-8'),
+            headers=headers,
+            method='POST'
+        )
 
-        def make_request():
-            req = urllib.request.Request(
-                api_url,
-                data=json.dumps(payload).encode('utf-8'),
-                headers=headers,
-                method='POST'
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    data = json.loads(resp.read().decode('utf-8'))
-                    return data["choices"][0]["message"]["content"]
-            except urllib.error.HTTPError as e:
-                error_body = e.read().decode('utf-8')[:200]
-                raise Exception(f"API 错误 ({e.code}): {error_body}")
-            except Exception as e:
-                raise Exception(f"请求失败: {e}")
-
-        return await loop.run_in_executor(_executor, make_request)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                return data["choices"][0]["message"]["content"]
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode('utf-8')[:500]
+            raise Exception(f"API 错误 ({e.code}): {error_body}")
+        except Exception as e:
+            raise Exception(f"请求失败: {e}")
 
     async def _process_message(self, text: str):
         """Process message with agent"""
