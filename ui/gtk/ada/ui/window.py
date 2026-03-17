@@ -270,7 +270,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_settings_clicked(self, button):
         """Open LLM settings dialog"""
-        from ada.ui.preferences import PreferencesWindow
+        from .preferences import PreferencesWindow
         prefs = PreferencesWindow(self.get_application())
         prefs.present()
 

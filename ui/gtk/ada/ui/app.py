@@ -88,7 +88,7 @@ class Application(Adw.Application):
     def do_activate(self):
         """Application activation - show main window"""
         if not self._main_window:
-            from ada.ui.window import MainWindow
+            from .window import MainWindow
             self._main_window = MainWindow(self, self.agent)
 
         self._main_window.present()
@@ -207,7 +207,7 @@ class Application(Adw.Application):
 
     def _on_preferences(self, action, param):
         """Show preferences"""
-        from ada.ui.preferences import PreferencesWindow
+        from .preferences import PreferencesWindow
         prefs = PreferencesWindow(self)
         prefs.present()
 

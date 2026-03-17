@@ -572,7 +572,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
 
     def _on_clear_memory(self, row):
         """Handle clear memory button"""
-        from ada.ui.dialogs import ConfirmationDialog
+        from .dialogs import ConfirmationDialog
 
         def on_confirm():
             # Clear memory
