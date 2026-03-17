@@ -11,15 +11,20 @@ from gi.repository import Gtk, Adw, GLib, Gdk, Pango
 import asyncio
 import logging
 import json
-import aiohttp
+import urllib.request
+import urllib.error
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
 # Config file path
 CONFIG_FILE = Path.home() / ".config" / "ada" / "config.json"
+
+# Thread pool for async HTTP calls
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def load_llm_config() -> Dict[str, Any]:
@@ -326,14 +331,27 @@ class MainWindow(Adw.ApplicationWindow):
             "max_tokens": params.get("max_tokens", 4096),
         }
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(api_url, headers=headers, json=payload, timeout=60) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
+        # Run HTTP request in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+
+        def make_request():
+            req = urllib.request.Request(
+                api_url,
+                data=json.dumps(payload).encode('utf-8'),
+                headers=headers,
+                method='POST'
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=60) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
                     return data["choices"][0]["message"]["content"]
-                else:
-                    error = await resp.text()
-                    raise Exception(f"API 错误 ({resp.status}): {error[:200]}")
+            except urllib.error.HTTPError as e:
+                error_body = e.read().decode('utf-8')[:200]
+                raise Exception(f"API 错误 ({e.code}): {error_body}")
+            except Exception as e:
+                raise Exception(f"请求失败: {e}")
+
+        return await loop.run_in_executor(_executor, make_request)
 
     async def _process_message(self, text: str):
         """Process message with agent"""
