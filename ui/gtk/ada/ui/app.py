@@ -77,11 +77,17 @@ class Application(Adw.Application):
         # Setup actions
         self._setup_actions()
 
-        # Initialize settings
+        # Initialize settings (optional - may not be installed)
+        self._settings = None
         try:
-            self._settings = Gio.Settings.new(self.APPLICATION_ID)
-        except Exception:
-            logger.debug("GSettings schema not found, using defaults")
+            # Check if schema is available
+            schema_source = Gio.SettingsSchemaSource.get_default()
+            if schema_source:
+                schema = schema_source.lookup(self.APPLICATION_ID, True)
+                if schema:
+                    self._settings = Gio.Settings.new(self.APPLICATION_ID)
+        except Exception as e:
+            logger.debug(f"GSettings schema not found, using defaults: {e}")
 
         logger.info("Ada application started")
 

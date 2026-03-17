@@ -86,6 +86,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
 
         self.app = app
         self._provider_settings: Dict[str, Dict[str, Any]] = {}
+        self._initializing = True  # Flag to prevent signal handlers during init
 
         # Add pages
         self.add(self._build_general_page())
@@ -93,6 +94,8 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.add(self._build_memory_page())
         self.add(self._build_skills_page())
         self.add(self._build_security_page())
+
+        self._initializing = False  # Done initializing
 
     def _build_general_page(self) -> Adw.PreferencesPage:
         """Build general settings page"""
@@ -166,16 +169,18 @@ class PreferencesWindow(Adw.PreferencesWindow):
             title="Provider",
             subtitle="Select LLM provider",
         )
-        self._update_provider_list("local")
         self.provider_row.connect("notify::selected", self._on_provider_changed)
         active_group.add(self.provider_row)
 
-        # Model selection
+        # Model selection - must be created before _update_provider_list
         self.model_row = Adw.ComboRow(
             title="Model",
             subtitle="Select model to use",
         )
         active_group.add(self.model_row)
+
+        # Now update the provider list (which also updates model list)
+        self._update_provider_list("local")
 
         page.add(active_group)
 
@@ -196,10 +201,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.provider_settings_group.add(self.base_url_row)
 
         # Test connection button
-        test_row = Adw.ButtonRow(
-            title="Test Connection",
-            subtitle="Verify provider settings",
-        )
+        test_row = Adw.ButtonRow(title="Test Connection")
         test_row.connect("activated", self._on_test_connection)
         self.provider_settings_group.add(test_row)
 
@@ -222,7 +224,6 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.temperature_row.set_range(0.0, 2.0)
         self.temperature_row.set_value(0.7)
         self.temperature_row.set_digits(1)
-        self.temperature_row.set_increments(0.1, 0.5)
         params_group.add(self.temperature_row)
 
         # Top P
@@ -233,7 +234,6 @@ class PreferencesWindow(Adw.PreferencesWindow):
         self.top_p_row.set_range(0.0, 1.0)
         self.top_p_row.set_value(0.9)
         self.top_p_row.set_digits(2)
-        self.top_p_row.set_increments(0.05, 0.2)
         params_group.add(self.top_p_row)
 
         # Max tokens
@@ -243,7 +243,6 @@ class PreferencesWindow(Adw.PreferencesWindow):
         )
         self.max_tokens_row.set_range(100, 128000)
         self.max_tokens_row.set_value(4096)
-        self.max_tokens_row.set_increments(100, 1000)
         params_group.add(self.max_tokens_row)
 
         return params_group
@@ -353,12 +352,16 @@ class PreferencesWindow(Adw.PreferencesWindow):
 
     def _on_category_changed(self, row, param):
         """Handle category selection change"""
+        if getattr(self, '_initializing', False):
+            return
         category = self._get_category_key(row.get_selected())
         self._update_provider_list(category)
         self._update_provider_settings()
 
     def _on_provider_changed(self, row, param):
         """Handle provider selection change"""
+        if getattr(self, '_initializing', False):
+            return
         self._update_model_list()
         self._update_provider_settings()
 
@@ -420,10 +423,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         retention_group.add(conv_retention)
 
         # Clear memory button
-        clear_memory = Adw.ButtonRow(
-            title="Clear All Memory",
-            subtitle="Delete all stored memories (cannot be undone)",
-        )
+        clear_memory = Adw.ButtonRow(title="Clear All Memory")
         clear_memory.connect("activated", self._on_clear_memory)
         retention_group.add(clear_memory)
 
