@@ -19,38 +19,155 @@ agent:
     include_context: true
     stream_responses: true
 
-# LLM settings
+# ============================================================
+# LLM Settings
+# ============================================================
 llm:
-  # Backend: ollama, openai, anthropic
-  backend: ollama
+  # Current active provider (select from: ollama, openai, anthropic, google,
+  # aliyun, baidu, zhipu, moonshot, deepseek, siliconflow, etc.)
+  provider: ollama
 
-  # Model settings
-  model: llama3.2
-
-  # Ollama settings (for local inference)
-  ollama:
-    base_url: http://localhost:11434
-    timeout: 120
-
-  # OpenAI settings (for API)
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    base_url: https://api.openai.com/v1
-    model: gpt-4-turbo-preview
-    timeout: 60
+  # Default model for the active provider
+  model: qwen2.5:latest
 
   # Generation parameters
   params:
     temperature: 0.7
     top_p: 0.9
-    max_tokens: 2000
+    max_tokens: 4096
 
   # Embedding settings
   embedding:
-    model: nomic-embed-text
+    provider: ollama
+    model: nomic-embed-text:latest
     dimension: 768
 
-# Memory settings
+  # ============================================================
+  # Provider Configurations
+  # ============================================================
+
+  # Local - Ollama (default)
+  ollama:
+    base_url: http://localhost:11434
+    timeout: 120
+    model: qwen2.5:latest
+    embedding_model: nomic-embed-text:latest
+
+  # Local - vLLM
+  vllm:
+    base_url: http://localhost:8000/v1
+    model: ""  # Specify your model
+
+  # ============================================================
+  # International Providers
+  # ============================================================
+
+  # OpenAI (GPT-4, GPT-3.5)
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    model: gpt-4o-mini
+    embedding_model: text-embedding-3-small
+    timeout: 60
+
+  # Anthropic (Claude)
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    model: claude-sonnet-4-20250514
+    timeout: 120
+
+  # Google AI (Gemini)
+  google:
+    api_key: ${GOOGLE_API_KEY}
+    model: gemini-2.0-flash
+    embedding_model: text-embedding-004
+    timeout: 60
+
+  # Azure OpenAI
+  azure:
+    api_key: ${AZURE_OPENAI_API_KEY}
+    base_url: ${AZURE_OPENAI_ENDPOINT}
+    api_version: "2024-02-15-preview"
+    model: gpt-4o
+    deployment: gpt-4o
+
+  # ============================================================
+  # Chinese (Domestic) Providers
+  # ============================================================
+
+  # 阿里云通义千问 (Alibaba Qwen)
+  aliyun:
+    api_key: ${ALIYUN_API_KEY}
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model: qwen-plus
+    embedding_model: text-embedding-v3
+    timeout: 60
+
+  # 百度文心一言 (Baidu ERNIE)
+  baidu:
+    api_key: ${BAIDU_API_KEY}
+    secret_key: ${BAIDU_SECRET_KEY}
+    model: ernie-4.0-8k
+    embedding_model: Embedding-V1
+    timeout: 60
+
+  # 智谱AI (GLM)
+  zhipu:
+    api_key: ${ZHIPU_API_KEY}
+    base_url: https://open.bigmodel.cn/api/paas/v4
+    model: glm-4-flash
+    embedding_model: embedding-3
+    timeout: 60
+
+  # 月之暗面 (Moonshot Kimi)
+  moonshot:
+    api_key: ${MOONSHOT_API_KEY}
+    base_url: https://api.moonshot.cn/v1
+    model: moonshot-v1-8k
+    timeout: 60
+
+  # 讯飞星火 (iFlytek Spark)
+  xfyun:
+    app_id: ${XFYUN_APP_ID}
+    api_key: ${XFYUN_API_KEY}
+    api_secret: ${XFYUN_API_SECRET}
+    model: generalv3.5
+    timeout: 60
+
+  # 百川智能 (Baichuan)
+  baichuan:
+    api_key: ${BAICHUAN_API_KEY}
+    base_url: https://api.baichuan-ai.com/v1
+    model: Baichuan4
+    timeout: 60
+
+  # MiniMax
+  minimax:
+    api_key: ${MINIMAX_API_KEY}
+    group_id: ${MINIMAX_GROUP_ID}
+    base_url: https://api.minimax.chat/v1
+    model: abab6.5s-chat
+    embedding_model: embo-01
+    timeout: 60
+
+  # DeepSeek (深度求索)
+  deepseek:
+    api_key: ${DEEPSEEK_API_KEY}
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    timeout: 60
+
+  # SiliconFlow (硅基流动)
+  siliconflow:
+    api_key: ${SILICONFLOW_API_KEY}
+    base_url: https://api.siliconflow.cn/v1
+    model: Qwen/Qwen2.5-72B-Instruct
+    embedding_model: BAAI/bge-large-zh-v1.5
+    timeout: 60
+
+# ============================================================
+# Memory Settings
+# ============================================================
 memory:
   # Storage backend: sqlite, chromadb
   backend: sqlite
@@ -73,7 +190,9 @@ memory:
   # Importance threshold for long-term storage
   importance_threshold: 0.6
 
-# Skill settings
+# ============================================================
+# Skill Settings
+# ============================================================
 skills:
   # Skill directories
   directories:
@@ -90,8 +209,14 @@ skills:
   builtin:
     - file.organizer
     - app.launcher
+    - system.control
+    - web.search
+    - calendar.reminder
+    - clipboard.manager
 
-# Perception settings
+# ============================================================
+# Perception Settings
+# ============================================================
 perception:
   # AT-SPI monitoring
   atspi:
@@ -111,7 +236,9 @@ perception:
   # UI tree cache
   cache_ttl: 5  # seconds
 
-# Execution settings
+# ============================================================
+# Execution Settings
+# ============================================================
 execution:
   # Execution path priority: api > dbus > cli > gui
   backends:
@@ -141,7 +268,9 @@ execution:
       - /lib
       - /etc/ssl
 
-# Security settings
+# ============================================================
+# Security Settings
+# ============================================================
 security:
   # Permission mode: permissive, balanced, strict
   mode: balanced
@@ -154,7 +283,9 @@ security:
   audit_log: true
   audit_path: ~/.local/share/ada/audit.log
 
-# UI settings
+# ============================================================
+# UI Settings
+# ============================================================
 ui:
   # Notification settings
   notifications:
@@ -171,7 +302,9 @@ ui:
   theme: Adwaita
   dark_mode: true
 
-# D-Bus settings
+# ============================================================
+# D-Bus Settings
+# ============================================================
 dbus:
   service_name: org.nebula.Ada
   object_path: /org/nebula/Ada
@@ -179,7 +312,9 @@ dbus:
   # Allow external connections
   allow_external: false
 
-# Logging settings
+# ============================================================
+# Logging Settings
+# ============================================================
 logging:
   level: INFO
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -196,7 +331,9 @@ logging:
     enabled: true
     colorize: true
 
-# Performance settings
+# ============================================================
+# Performance Settings
+# ============================================================
 performance:
   # Cache settings
   cache:

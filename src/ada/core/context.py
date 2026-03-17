@@ -20,14 +20,58 @@ class AgentMode(Enum):
 
 
 @dataclass
+class LLMConfig:
+    """LLM provider configuration"""
+    provider: str = "ollama"
+    model: str = "qwen2.5:latest"
+    api_key: str = ""
+    base_url: str = ""
+    embedding_model: str = "nomic-embed-text:latest"
+    embedding_provider: str = ""
+    temperature: float = 0.7
+    top_p: float = 0.9
+    max_tokens: int = 4096
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "api_key": self.api_key,
+            "base_url": self.base_url,
+            "embedding_model": self.embedding_model,
+            "embedding_provider": self.embedding_provider,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "max_tokens": self.max_tokens,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "LLMConfig":
+        return cls(
+            provider=data.get("provider", "ollama"),
+            model=data.get("model", "qwen2.5:latest"),
+            api_key=data.get("api_key", ""),
+            base_url=data.get("base_url", ""),
+            embedding_model=data.get("embedding_model", "nomic-embed-text:latest"),
+            embedding_provider=data.get("embedding_provider", ""),
+            temperature=data.get("temperature", 0.7),
+            top_p=data.get("top_p", 0.9),
+            max_tokens=data.get("max_tokens", 4096),
+        )
+
+
+@dataclass
 class AgentConfig:
     """Agent configuration"""
 
-    # Model settings
+    # LLM settings
+    llm: LLMConfig = field(default_factory=LLMConfig)
+
+    # Legacy fields (for backward compatibility)
     llm_backend: str = "ollama"
-    llm_model: str = "qwen2.5:7b"
+    llm_model: str = "qwen2.5:latest"
     llm_base_url: str = "http://localhost:11434"
-    embedding_model: str = "nomic-embed-text"
+    embedding_model: str = "nomic-embed-text:latest"
 
     # Execution settings
     max_parallel_tasks: int = 3
@@ -62,11 +106,34 @@ class AgentConfig:
         with open(path) as f:
             data = yaml.safe_load(f) or {}
 
+        # Parse LLM config
+        llm_data = data.get("llm", {})
+        llm_config = LLMConfig(
+            provider=llm_data.get("provider", "ollama"),
+            model=llm_data.get("model", "qwen2.5:latest"),
+            embedding_model=llm_data.get("embedding", {}).get("model", "nomic-embed-text:latest"),
+            temperature=llm_data.get("params", {}).get("temperature", 0.7),
+            top_p=llm_data.get("params", {}).get("top_p", 0.9),
+            max_tokens=llm_data.get("params", {}).get("max_tokens", 4096),
+        )
+
+        # Get provider-specific settings
+        provider_id = llm_data.get("provider", "ollama")
+        provider_data = llm_data.get(provider_id, {})
+        if provider_data:
+            llm_config.base_url = provider_data.get("base_url", "")
+            llm_config.api_key = provider_data.get("api_key", "")
+            if "model" in provider_data:
+                llm_config.model = provider_data["model"]
+            if "embedding_model" in provider_data:
+                llm_config.embedding_model = provider_data["embedding_model"]
+
         return cls(
-            llm_backend=data.get("llm", {}).get("backend", "ollama"),
-            llm_model=data.get("llm", {}).get("model", "qwen2.5:7b"),
-            llm_base_url=data.get("llm", {}).get("base_url", "http://localhost:11434"),
-            embedding_model=data.get("llm", {}).get("embedding_model", "nomic-embed-text"),
+            llm=llm_config,
+            llm_backend=llm_data.get("provider", "ollama"),
+            llm_model=llm_config.model,
+            llm_base_url=llm_config.base_url or "http://localhost:11434",
+            embedding_model=llm_config.embedding_model,
             max_parallel_tasks=data.get("execution", {}).get("max_parallel_tasks", 3),
             default_timeout=data.get("execution", {}).get("default_timeout", 30.0),
             memory_enabled=data.get("memory", {}).get("enabled", True),
@@ -79,12 +146,7 @@ class AgentConfig:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
-            "llm": {
-                "backend": self.llm_backend,
-                "model": self.llm_model,
-                "base_url": self.llm_base_url,
-                "embedding_model": self.embedding_model,
-            },
+            "llm": self.llm.to_dict(),
             "execution": {
                 "max_parallel_tasks": self.max_parallel_tasks,
                 "default_timeout": self.default_timeout,

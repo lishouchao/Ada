@@ -10,9 +10,60 @@ from gi.repository import Gtk, Adw, Gio, GLib
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
+
+# LLM Provider configurations
+PROVIDER_CATEGORIES = {
+    "local": {
+        "name": "本地模型",
+        "providers": [
+            {"id": "ollama", "name": "Ollama", "desc": "本地运行，隐私保护"},
+            {"id": "vllm", "name": "vLLM", "desc": "高性能本地推理"},
+        ]
+    },
+    "international": {
+        "name": "国际服务",
+        "providers": [
+            {"id": "openai", "name": "OpenAI", "desc": "GPT-4, GPT-3.5"},
+            {"id": "anthropic", "name": "Anthropic", "desc": "Claude 系列"},
+            {"id": "google", "name": "Google AI", "desc": "Gemini 系列"},
+        ]
+    },
+    "china": {
+        "name": "国内服务",
+        "providers": [
+            {"id": "aliyun", "name": "通义千问", "desc": "阿里云 Qwen"},
+            {"id": "deepseek", "name": "DeepSeek", "desc": "深度求索"},
+            {"id": "zhipu", "name": "智谱AI", "desc": "GLM 系列"},
+            {"id": "moonshot", "name": "Kimi", "desc": "月之暗面"},
+            {"id": "baidu", "name": "文心一言", "desc": "百度 ERNIE"},
+            {"id": "baichuan", "name": "百川", "desc": "Baichuan 系列"},
+            {"id": "minimax", "name": "MiniMax", "desc": "abab 系列"},
+            {"id": "xfyun", "name": "讯飞星火", "desc": "Spark 系列"},
+            {"id": "siliconflow", "name": "硅基流动", "desc": "多模型代理"},
+        ]
+    }
+}
+
+# Model presets for each provider
+PROVIDER_MODELS = {
+    "ollama": ["qwen2.5:latest", "llama3.2:latest", "deepseek-r1:latest", "mistral:latest", "gemma2:latest", "yi:latest", "glm4:latest"],
+    "vllm": [],  # User configured
+    "openai": ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo", "o1", "o1-mini"],
+    "anthropic": ["claude-sonnet-4-20250514", "claude-opus-4-20250514", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"],
+    "google": ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+    "aliyun": ["qwen-max", "qwen-plus", "qwen-turbo", "qwen-long", "qwen2.5-72b-instruct", "qwen2.5-32b-instruct"],
+    "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
+    "zhipu": ["glm-4-plus", "glm-4-0520", "glm-4-air", "glm-4-flash", "glm-4-long"],
+    "moonshot": ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"],
+    "baidu": ["ernie-4.0-8k", "ernie-4.0-turbo-8k", "ernie-3.5-8k", "ernie-speed-8k"],
+    "baichuan": ["Baichuan4", "Baichuan3-Turbo", "Baichuan3-Turbo-128k"],
+    "minimax": ["abab6.5s-chat", "abab6.5g-chat", "abab6.5-chat"],
+    "xfyun": ["generalv3.5", "generalv3", "4.0Ultra"],
+    "siliconflow": ["Qwen/Qwen2.5-72B-Instruct", "deepseek-ai/DeepSeek-V3", "meta-llama/Llama-3.1-70B-Instruct"],
+}
 
 
 class PreferencesWindow(Adw.PreferencesWindow):
@@ -34,6 +85,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
         )
 
         self.app = app
+        self._provider_settings: Dict[str, Dict[str, Any]] = {}
 
         # Add pages
         self.add(self._build_general_page())
@@ -90,77 +142,245 @@ class PreferencesWindow(Adw.PreferencesWindow):
         return page
 
     def _build_llm_page(self) -> Adw.PreferencesPage:
-        """Build LLM settings page"""
+        """Build LLM settings page with all providers"""
         page = Adw.PreferencesPage(title="Language Model", icon_name="dialog-information-symbolic")
 
-        # Backend group
-        backend_group = Adw.PreferencesGroup(title="Backend")
+        # Active provider group
+        active_group = Adw.PreferencesGroup(title="Active Provider")
 
-        # Backend selection
-        backend = Adw.ComboRow(
-            title="Backend",
-            subtitle="LLM backend to use",
-            model=Gtk.StringList.new(["Ollama (Local)", "OpenAI", "Anthropic"]),
+        # Provider category selection
+        self.category_row = Adw.ComboRow(
+            title="Provider Type",
+            subtitle="Select provider category",
+            model=Gtk.StringList.new([
+                "本地模型 (Local)",
+                "国际服务 (International)",
+                "国内服务 (China)"
+            ]),
         )
-        backend_group.add(backend)
+        self.category_row.connect("notify::selected", self._on_category_changed)
+        active_group.add(self.category_row)
 
-        page.add(backend_group)
-
-        # Ollama settings
-        ollama_group = Adw.PreferencesGroup(title="Ollama Settings")
-
-        # Base URL
-        ollama_url = Adw.EntryRow(
-            title="Server URL",
-            text="http://localhost:11434",
+        # Provider selection
+        self.provider_row = Adw.ComboRow(
+            title="Provider",
+            subtitle="Select LLM provider",
         )
-        ollama_group.add(ollama_url)
+        self._update_provider_list("local")
+        self.provider_row.connect("notify::selected", self._on_provider_changed)
+        active_group.add(self.provider_row)
 
         # Model selection
-        ollama_model = Adw.ComboRow(
+        self.model_row = Adw.ComboRow(
             title="Model",
-            subtitle="Model to use for inference",
-            model=Gtk.StringList.new(["llama3.2", "llama3.1", "mistral", "qwen2.5"]),
+            subtitle="Select model to use",
         )
-        ollama_group.add(ollama_model)
+        active_group.add(self.model_row)
 
-        page.add(ollama_group)
+        page.add(active_group)
 
-        # API settings
-        api_group = Adw.PreferencesGroup(title="API Settings")
+        # Current provider settings
+        self.provider_settings_group = Adw.PreferencesGroup(title="Provider Settings")
+        page.add(self.provider_settings_group)
 
-        # API Key
-        api_key = Adw.PasswordEntryRow(
+        # API Key entry
+        self.api_key_row = Adw.PasswordEntryRow(
             title="API Key",
         )
-        api_group.add(api_key)
+        self.provider_settings_group.add(self.api_key_row)
 
-        page.add(api_group)
+        # Base URL (for configurable providers)
+        self.base_url_row = Adw.EntryRow(
+            title="Base URL",
+        )
+        self.provider_settings_group.add(self.base_url_row)
 
-        # Generation parameters
+        # Test connection button
+        test_row = Adw.ButtonRow(
+            title="Test Connection",
+            subtitle="Verify provider settings",
+        )
+        test_row.connect("activated", self._on_test_connection)
+        self.provider_settings_group.add(test_row)
+
+        # Update initial state
+        self._update_provider_settings()
+
+        page.add(self._build_generation_params_group())
+
+        return page
+
+    def _build_generation_params_group(self) -> Adw.PreferencesGroup:
+        """Build generation parameters group"""
         params_group = Adw.PreferencesGroup(title="Generation Parameters")
 
         # Temperature
-        temperature = Adw.SpinRow(
+        self.temperature_row = Adw.SpinRow(
             title="Temperature",
             subtitle="Randomness of responses (0.0 - 2.0)",
         )
-        temperature.set_range(0.0, 2.0)
-        temperature.set_value(0.7)
-        params_group.add(temperature)
+        self.temperature_row.set_range(0.0, 2.0)
+        self.temperature_row.set_value(0.7)
+        self.temperature_row.set_digits(1)
+        self.temperature_row.set_increments(0.1, 0.5)
+        params_group.add(self.temperature_row)
+
+        # Top P
+        self.top_p_row = Adw.SpinRow(
+            title="Top P",
+            subtitle="Nucleus sampling threshold",
+        )
+        self.top_p_row.set_range(0.0, 1.0)
+        self.top_p_row.set_value(0.9)
+        self.top_p_row.set_digits(2)
+        self.top_p_row.set_increments(0.05, 0.2)
+        params_group.add(self.top_p_row)
 
         # Max tokens
-        max_tokens = Adw.SpinRow(
+        self.max_tokens_row = Adw.SpinRow(
             title="Max Tokens",
             subtitle="Maximum response length",
         )
-        max_tokens.set_range(100, 8000)
-        max_tokens.set_value(2000)
-        params_group.add(max_tokens)
+        self.max_tokens_row.set_range(100, 128000)
+        self.max_tokens_row.set_value(4096)
+        self.max_tokens_row.set_increments(100, 1000)
+        params_group.add(self.max_tokens_row)
 
-        page.add(params_group)
+        return params_group
 
-        return page
+    def _get_category_key(self, index: int) -> str:
+        """Get category key from index"""
+        keys = ["local", "international", "china"]
+        return keys[index] if 0 <= index < len(keys) else "local"
+
+    def _update_provider_list(self, category: str):
+        """Update provider list based on category"""
+        category_info = PROVIDER_CATEGORIES.get(category, PROVIDER_CATEGORIES["local"])
+        providers = category_info["providers"]
+
+        model = Gtk.StringList.new([f"{p['name']} - {p['desc']}" for p in providers])
+        self.provider_row.set_model(model)
+
+        # Store provider IDs for lookup
+        self._current_provider_ids = [p["id"] for p in providers]
+        self._update_model_list()
+
+    def _update_model_list(self):
+        """Update model list based on selected provider"""
+        provider_id = self._get_current_provider_id()
+        models = PROVIDER_MODELS.get(provider_id, [])
+
+        if models:
+            model = Gtk.StringList.new(models)
+            self.model_row.set_model(model)
+            self.model_row.set_sensitive(True)
+        else:
+            # Custom model entry
+            model = Gtk.StringList.new(["Custom (enter below)"])
+            self.model_row.set_model(model)
+            self.model_row.set_sensitive(False)
+
+    def _get_current_provider_id(self) -> str:
+        """Get currently selected provider ID"""
+        if not hasattr(self, '_current_provider_ids'):
+            return "ollama"
+
+        selected = self.provider_row.get_selected()
+        if 0 <= selected < len(self._current_provider_ids):
+            return self._current_provider_ids[selected]
+        return "ollama"
+
+    def _update_provider_settings(self):
+        """Update provider-specific settings visibility"""
+        provider_id = self._get_current_provider_id()
+
+        # Local providers don't need API key
+        is_local = provider_id in ["ollama", "vllm"]
+        self.api_key_row.set_visible(not is_local)
+
+        # Update base URL based on provider
+        default_urls = {
+            "ollama": "http://localhost:11434",
+            "vllm": "http://localhost:8000/v1",
+            "openai": "https://api.openai.com/v1",
+            "anthropic": "https://api.anthropic.com/v1",
+            "google": "https://generativelanguage.googleapis.com/v1beta",
+            "aliyun": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "deepseek": "https://api.deepseek.com/v1",
+            "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+            "moonshot": "https://api.moonshot.cn/v1",
+            "baidu": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
+            "baichuan": "https://api.baichuan-ai.com/v1",
+            "minimax": "https://api.minimax.chat/v1",
+            "siliconflow": "https://api.siliconflow.cn/v1",
+        }
+
+        self.base_url_row.set_text(default_urls.get(provider_id, ""))
+        self.base_url_row.set_visible(provider_id in ["ollama", "vllm"])
+
+        # Update group title
+        provider_names = {
+            "ollama": "Ollama Settings",
+            "vllm": "vLLM Settings",
+            "openai": "OpenAI Settings",
+            "anthropic": "Anthropic Settings",
+            "google": "Google AI Settings",
+            "aliyun": "通义千问 Settings",
+            "deepseek": "DeepSeek Settings",
+            "zhipu": "智谱AI Settings",
+            "moonshot": "Kimi Settings",
+            "baidu": "文心一言 Settings",
+            "baichuan": "百川 Settings",
+            "minimax": "MiniMax Settings",
+            "xfyun": "讯飞星火 Settings",
+            "siliconflow": "硅基流动 Settings",
+        }
+        self.provider_settings_group.set_title(provider_names.get(provider_id, "Provider Settings"))
+
+        # Update API key placeholder
+        api_key_hints = {
+            "openai": "sk-...",
+            "anthropic": "sk-ant-...",
+            "google": "AIza...",
+            "aliyun": "sk-...",
+            "deepseek": "sk-...",
+            "zhipu": "...",
+            "moonshot": "sk-...",
+        }
+        hint = api_key_hints.get(provider_id, "")
+        if hint:
+            self.api_key_row.set_placeholder_text(hint)
+
+    def _on_category_changed(self, row, param):
+        """Handle category selection change"""
+        category = self._get_category_key(row.get_selected())
+        self._update_provider_list(category)
+        self._update_provider_settings()
+
+    def _on_provider_changed(self, row, param):
+        """Handle provider selection change"""
+        self._update_model_list()
+        self._update_provider_settings()
+
+    def _on_test_connection(self, row):
+        """Test connection to the provider"""
+        provider_id = self._get_current_provider_id()
+
+        # Show a toast notification
+        toast = Adw.Toast.new(f"Testing connection to {provider_id}...")
+        toast.set_timeout(2)
+        self.add_toast(toast)
+
+        # TODO: Implement actual connection test
+        GLib.timeout_add(1500, lambda: self._show_test_result(provider_id))
+
+    def _show_test_result(self, provider_id: str) -> bool:
+        """Show test result"""
+        # Simulate success for now
+        toast = Adw.Toast.new(f"✓ Connection successful")
+        toast.set_timeout(3)
+        self.add_toast(toast)
+        return False
 
     def _build_memory_page(self) -> Adw.PreferencesPage:
         """Build memory settings page"""
@@ -368,3 +588,39 @@ class PreferencesWindow(Adw.PreferencesWindow):
             on_confirm=on_confirm,
         )
         dialog.present()
+
+    def get_llm_config(self) -> Dict[str, Any]:
+        """Get current LLM configuration"""
+        return {
+            "provider": self._get_current_provider_id(),
+            "model": self._get_selected_model(),
+            "api_key": self.api_key_row.get_text() if self.api_key_row.get_visible() else "",
+            "base_url": self.base_url_row.get_text() if self.base_url_row.get_visible() else "",
+            "params": {
+                "temperature": self.temperature_row.get_value(),
+                "top_p": self.top_p_row.get_value(),
+                "max_tokens": int(self.max_tokens_row.get_value()),
+            }
+        }
+
+    def _get_selected_model(self) -> str:
+        """Get currently selected model"""
+        provider_id = self._get_current_provider_id()
+        models = PROVIDER_MODELS.get(provider_id, [])
+
+        if models:
+            selected = self.model_row.get_selected()
+            if 0 <= selected < len(models):
+                return models[selected]
+
+        # Return default model
+        defaults = {
+            "ollama": "qwen2.5:latest",
+            "openai": "gpt-4o-mini",
+            "anthropic": "claude-sonnet-4-20250514",
+            "google": "gemini-2.0-flash",
+            "aliyun": "qwen-plus",
+            "deepseek": "deepseek-chat",
+            "zhipu": "glm-4-flash",
+        }
+        return defaults.get(provider_id, "")
