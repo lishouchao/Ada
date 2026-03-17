@@ -688,7 +688,7 @@ class PreferencesWindow(Adw.PreferencesWindow):
             self.max_tokens_row.set_value(params["max_tokens"])
 
     def _save_settings(self):
-        """Auto-save settings when changed"""
+        """Auto-save settings when changed (silent)"""
         if self._initializing:
             return
 
@@ -701,15 +701,9 @@ class PreferencesWindow(Adw.PreferencesWindow):
 
         try:
             save_config(config)
-            # Show toast notification
-            toast = Adw.Toast.new("设置已保存")
-            toast.set_timeout(1)
-            self.add_toast(toast)
+            logger.debug("Settings saved")
         except Exception as e:
             logger.error(f"Failed to save settings: {e}")
-            toast = Adw.Toast.new(f"保存失败: {e}")
-            toast.set_timeout(2)
-            self.add_toast(toast)
 
     def _get_selected_model(self) -> str:
         """Get currently selected model"""

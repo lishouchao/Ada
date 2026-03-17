@@ -10,10 +10,27 @@ from gi.repository import Gtk, Adw, GLib, Gdk, Pango
 
 import asyncio
 import logging
+import json
+import aiohttp
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Config file path
+CONFIG_FILE = Path.home() / ".config" / "ada" / "config.json"
+
+
+def load_llm_config() -> Dict[str, Any]:
+    """Load LLM configuration from file"""
+    if CONFIG_FILE.exists():
+        try:
+            config = json.loads(CONFIG_FILE.read_text())
+            return config.get("llm", {})
+        except Exception as e:
+            logger.warning(f"Failed to load config: {e}")
+    return {}
 
 
 class Message:
@@ -92,6 +109,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.agent = agent
         self._messages: List[Message] = []
+        self._llm_config = load_llm_config()
 
         # Window setup
         self.set_default_size(600, 700)
@@ -102,6 +120,9 @@ class MainWindow(Adw.ApplicationWindow):
 
         # Load saved state
         self._load_state()
+
+        # Update status label with current provider
+        self._update_status()
 
     def _build_ui(self):
         """Build the user interface"""
@@ -219,15 +240,100 @@ class MainWindow(Adw.ApplicationWindow):
         self._input_entry.set_text("")
         self._send_button.set_sensitive(False)
 
-        # Process with agent
-        if self.agent:
-            asyncio.create_task(self._process_message(text))
-        else:
-            # Demo mode
-            self._add_message(Message(
-                "抱歉，我目前处于演示模式。请配置 LLM 后端以获得完整功能。",
-                is_user=False
-            ))
+        # Reload config in case it changed
+        self._llm_config = load_llm_config()
+
+        # Process with LLM
+        asyncio.create_task(self._process_with_llm(text))
+
+    def _update_status(self):
+        """Update status label with current provider info"""
+        provider = self._llm_config.get("provider", "ollama")
+        model = self._llm_config.get("model", "")
+
+        provider_names = {
+            "ollama": "Ollama",
+            "openai": "OpenAI",
+            "anthropic": "Claude",
+            "google": "Gemini",
+            "aliyun": "通义千问",
+            "deepseek": "DeepSeek",
+            "zhipu": "智谱AI",
+            "moonshot": "Kimi",
+            "baidu": "文心一言",
+            "siliconflow": "硅基流动",
+        }
+
+        name = provider_names.get(provider, provider)
+        self._status_label.set_text(f"{name} · {model}" if model else name)
+
+    async def _process_with_llm(self, text: str):
+        """Process message with configured LLM"""
+        self._status_icon.set_icon_name("content-loading-symbolic")
+
+        try:
+            response = await self._call_llm_api(text)
+
+            GLib.idle_add(
+                self._add_message,
+                Message(response, is_user=False)
+            )
+
+        except Exception as e:
+            logger.error(f"LLM error: {e}")
+            GLib.idle_add(
+                self._add_message,
+                Message(f"❌ 错误: {e}", is_user=False)
+            )
+
+        finally:
+            GLib.idle_add(
+                self._status_icon.set_icon_name,
+                "user-available-symbolic"
+            )
+
+    async def _call_llm_api(self, text: str) -> str:
+        """Call LLM API based on config"""
+        provider = self._llm_config.get("provider", "ollama")
+        model = self._llm_config.get("model", "qwen2.5:latest")
+        api_key = self._llm_config.get("api_key", "")
+        base_url = self._llm_config.get("base_url", "")
+        params = self._llm_config.get("params", {})
+
+        # Default URLs for each provider
+        default_urls = {
+            "ollama": "http://localhost:11434/v1",
+            "deepseek": "https://api.deepseek.com/v1",
+            "openai": "https://api.openai.com/v1",
+            "anthropic": "https://api.anthropic.com/v1",
+            "aliyun": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "zhipu": "https://open.bigmodel.cn/api/paas/v4",
+            "moonshot": "https://api.moonshot.cn/v1",
+            "siliconflow": "https://api.siliconflow.cn/v1",
+        }
+
+        url = base_url or default_urls.get(provider, "http://localhost:11434/v1")
+        api_url = f"{url}/chat/completions"
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": text}],
+            "temperature": params.get("temperature", 0.7),
+            "max_tokens": params.get("max_tokens", 4096),
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(api_url, headers=headers, json=payload, timeout=60) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    error = await resp.text()
+                    raise Exception(f"API 错误 ({resp.status}): {error[:200]}")
 
     async def _process_message(self, text: str):
         """Process message with agent"""
