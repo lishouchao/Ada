@@ -6,7 +6,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, GLib, Gdk, Pango
+from gi.repository import Gtk, Adw, GLib, Gdk, Pango, Gio
 
 import asyncio
 import logging
@@ -17,16 +17,11 @@ import threading
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
 
 # Config file path
 CONFIG_FILE = Path.home() / ".config" / "ada" / "config.json"
-
-# Thread pool for async HTTP calls
-_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def load_llm_config() -> Dict[str, Any]:
@@ -105,7 +100,8 @@ class MainWindow(Adw.ApplicationWindow):
     Main application window for Ada.
 
     Features:
-    - Chat interface
+    - Chat interface (left panel)
+    - Side panels for settings, browser, etc. (right panel)
     - Message history
     - Input field with voice option
     - Status indicator
@@ -119,8 +115,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._llm_config = load_llm_config()
 
         # Window setup
-        self.set_default_size(600, 700)
-        self.set_size_request(400, 500)
+        self.set_default_size(1000, 700)
+        self.set_size_request(600, 500)
 
         # Build UI
         self._build_ui()
@@ -132,7 +128,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_status()
 
     def _build_ui(self):
-        """Build the user interface"""
+        """Build the user interface with side panel support"""
         # Main layout
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
@@ -140,16 +136,15 @@ class MainWindow(Adw.ApplicationWindow):
         header = Adw.HeaderBar()
         header.set_title_widget(Adw.WindowTitle(title="Ada", subtitle="AI Assistant"))
 
-        # Settings button (LLM config)
-        settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
-        settings_btn.set_tooltip_text("LLM 设置")
-        settings_btn.connect("clicked", self._on_settings_clicked)
-        header.pack_end(settings_btn)
+        # Settings button (LLM config) - now toggles side panel
+        self._settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        self._settings_btn.set_tooltip_text("设置")
+        self._settings_btn.connect("clicked", self._on_settings_clicked)
+        header.pack_end(self._settings_btn)
 
         # Menu button
         menu = Gio.Menu()
-        menu.append("Preferences", "app.preferences")
-        menu.append("About", "app.about")
+        menu.append("关于", "app.about")
         menu_button = Gtk.MenuButton(menu_model=menu)
         header.pack_end(menu_button)
 
@@ -164,6 +159,13 @@ class MainWindow(Adw.ApplicationWindow):
         header.pack_start(self._status_box)
 
         main_box.append(header)
+
+        # Main content area with Paned layout
+        self._paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self._paned.set_vexpand(True)
+
+        # Left side: Chat interface
+        chat_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
         # Content area with chat
         content = Adw.Clamp(maximum_size=800)
@@ -183,7 +185,7 @@ class MainWindow(Adw.ApplicationWindow):
         scroll.set_child(self._message_list)
 
         content.set_child(scroll)
-        main_box.append(content)
+        chat_box.append(content)
 
         # Input area
         input_box = Gtk.Box(
@@ -220,15 +222,62 @@ class MainWindow(Adw.ApplicationWindow):
         self._send_button.connect("clicked", self._on_send)
         input_box.append(self._send_button)
 
-        main_box.append(input_box)
+        chat_box.append(input_box)
+
+        # Right side: Panel container with Revealer for animation
+        self._panel_revealer = Gtk.Revealer()
+        self._panel_revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_LEFT)
+        self._panel_revealer.set_transition_duration(250)
+        self._panel_revealer.set_reveal_child(False)
+
+        self._panel_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self._panel_container.set_size_request(500, -1)  # Minimum width for panel
+        self._panel_container.add_css_class("panel-container")
+
+        self._panel_revealer.set_child(self._panel_container)
+
+        # Setup Paned
+        self._paned.set_start_child(chat_box)
+        self._paned.set_end_child(self._panel_revealer)
+        self._paned.set_position(500)  # Initial position (chat area width)
+        self._paned.set_resize_end_child(False)  # Panel doesn't resize
+
+        main_box.append(self._paned)
 
         self.set_content(main_box)
+
+        # Initialize panel manager
+        self._setup_panels()
 
         # Welcome message
         self._add_message(Message(
             "你好！我是 Ada，你的 AI 助手。有什么可以帮助你的吗？",
             is_user=False
         ))
+
+    def _setup_panels(self):
+        """Setup side panels"""
+        from .panels import SidePanelManager, SettingsPanel
+
+        self._panel_manager = SidePanelManager(self._panel_container, self._panel_revealer)
+        self._panel_manager.set_on_panel_changed(self._on_panel_changed)
+
+        # Create settings panel
+        self._settings_panel = SettingsPanel(on_close=self._hide_panel)
+
+        # Register panels
+        self._panel_manager.register_panel("settings", self._settings_panel)
+
+    def _on_panel_changed(self, panel_name: Optional[str]):
+        """Handle panel visibility change"""
+        if panel_name:
+            self._settings_btn.add_css_class("accent")
+        else:
+            self._settings_btn.remove_css_class("accent")
+
+    def _hide_panel(self):
+        """Hide current panel"""
+        self._panel_manager.hide_panel()
 
     def _on_input_changed(self, entry):
         """Handle input text changes"""
@@ -255,8 +304,6 @@ class MainWindow(Adw.ApplicationWindow):
         self._send_button.set_sensitive(False)
 
         # Process in background thread
-        import threading
-
         def process_in_thread():
             try:
                 response = self._call_llm_sync(text)
@@ -343,55 +390,20 @@ class MainWindow(Adw.ApplicationWindow):
         except Exception as e:
             raise Exception(f"请求失败: {e}")
 
-    async def _process_message(self, text: str):
-        """Process message with agent"""
-        # Show thinking indicator
-        self._status_icon.set_from_icon_name("content-loading-symbolic")
-
-        try:
-            result = await self.agent.process(text)
-
-            # Add response
-            GLib.idle_add(
-                self._add_message,
-                Message(result.message, is_user=False)
-            )
-
-        except Exception as e:
-            logger.error(f"Error processing message: {e}")
-            GLib.idle_add(
-                self._add_message,
-                Message(f"抱歉，处理消息时出错：{e}", is_user=False)
-            )
-
-        finally:
-            # Hide thinking indicator
-            GLib.idle_add(
-                self._status_icon.set_from_icon_name,
-                "user-available-symbolic"
-            )
-
     def _on_voice(self, button):
         """Handle voice input"""
         # Toggle voice recording
         if button.get_icon_name() == "audio-input-microphone-symbolic":
             button.set_icon_name("media-playback-stop-symbolic")
-            # Start recording
-            asyncio.create_task(self._start_voice_recording())
         else:
             button.set_icon_name("audio-input-microphone-symbolic")
-            # Stop recording
 
     def _on_settings_clicked(self, button):
-        """Open LLM settings dialog"""
-        from .preferences import PreferencesWindow
-        prefs = PreferencesWindow(self.get_application())
-        prefs.present()
-
-    async def _start_voice_recording(self):
-        """Start voice recording"""
-        # Placeholder for voice input
-        pass
+        """Toggle settings panel"""
+        # Reload config when opening settings
+        if not self._panel_manager.is_panel_visible("settings"):
+            self._settings_panel._load_settings()
+        self._panel_manager.toggle_panel("settings")
 
     def _add_message(self, message: Message):
         """Add message to list"""
@@ -407,7 +419,6 @@ class MainWindow(Adw.ApplicationWindow):
         # Get last row
         n_items = self._message_list.get_row_at_index(len(self._messages) - 1)
         if n_items:
-            # Scroll adjustment
             pass  # GTK4 handles this automatically
 
     def _load_state(self):
@@ -424,7 +435,3 @@ class MainWindow(Adw.ApplicationWindow):
         """Handle window close"""
         self._save_state()
         return False  # Allow close
-
-
-# Required import for Gio.Menu
-from gi.repository import Gio
