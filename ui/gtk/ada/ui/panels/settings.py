@@ -80,6 +80,95 @@ PROVIDER_MODELS = {
     "siliconflow": ["Qwen/Qwen2.5-72B-Instruct", "deepseek-ai/DeepSeek-V3"],
 }
 
+# 提供商配置（按提供商组织）
+PROVIDERS = [
+    {
+        "id": "ollama",
+        "name": "Ollama",
+        "prefix": "O",
+        "need_key": False,
+        "default_url": "http://localhost:11434/v1",
+        "models": [
+            {"id": "qwen2.5:latest", "name": "Qwen 2.5"},
+            {"id": "llama3.2:latest", "name": "Llama 3.2"},
+            {"id": "deepseek-r1:latest", "name": "DeepSeek R1"},
+            {"id": "mistral:latest", "name": "Mistral"},
+        ]
+    },
+    {
+        "id": "deepseek",
+        "name": "DeepSeek",
+        "prefix": "",
+        "need_key": True,
+        "default_url": "https://api.deepseek.com/v1",
+        "models": [
+            {"id": "deepseek-chat", "name": "DeepSeek Chat"},
+            {"id": "deepseek-reasoner", "name": "DeepSeek Reasoner"},
+        ]
+    },
+    {
+        "id": "openai",
+        "name": "OpenAI",
+        "prefix": "",
+        "need_key": True,
+        "default_url": "https://api.openai.com/v1",
+        "models": [
+            {"id": "gpt-4o", "name": "GPT-4o"},
+            {"id": "gpt-4o-mini", "name": "GPT-4o Mini"},
+        ]
+    },
+    {
+        "id": "aliyun",
+        "name": "通义千问",
+        "prefix": "",
+        "need_key": True,
+        "default_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "models": [
+            {"id": "qwen-max", "name": "Qwen Max"},
+            {"id": "qwen-plus", "name": "Qwen Plus"},
+        ]
+    },
+    {
+        "id": "zhipu",
+        "name": "智谱AI",
+        "prefix": "",
+        "need_key": True,
+        "default_url": "https://open.bigmodel.cn/api/paas/v4",
+        "models": [
+            {"id": "glm-4-plus", "name": "GLM-4 Plus"},
+            {"id": "glm-4-flash", "name": "GLM-4 Flash"},
+        ]
+    },
+    {
+        "id": "moonshot",
+        "name": "Kimi",
+        "prefix": "",
+        "need_key": True,
+        "default_url": "https://api.moonshot.cn/v1",
+        "models": [
+            {"id": "moonshot-v1-8k", "name": "Moonshot V1 8K"},
+        ]
+    },
+]
+
+# 生成扁平化的 ALL_MODELS 用于模型选择器
+def _build_all_models():
+    result = []
+    for provider in PROVIDERS:
+        prefix = provider["prefix"]
+        for model in provider["models"]:
+            model_id = f"{provider['id']}:{model['id']}"
+            name = f"{prefix}: {model['name']}" if prefix else model["name"]
+            result.append({
+                "id": model_id,
+                "name": name,
+                "provider": provider["id"],
+                "model": model["id"]
+            })
+    return result
+
+ALL_MODELS = _build_all_models()
+
 
 class SettingsPanel(Adw.Bin):
     """
@@ -104,20 +193,9 @@ class SettingsPanel(Adw.Bin):
         self._initializing = False
 
     def _build_ui(self):
-        """构建面板UI"""
+        """构建面板UI - 不包含标题栏，由独立窗口提供"""
         # 主容器
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-
-        # 顶部栏
-        header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle(title="设置"))
-
-        # 关闭按钮
-        close_btn = Gtk.Button(icon_name="window-close-symbolic")
-        close_btn.connect("clicked", self._on_close)
-        header.pack_end(close_btn)
-
-        main_box.append(header)
 
         # 使用 NavigationSplitView 实现侧边栏导航
         self._split_view = Adw.NavigationSplitView()
@@ -140,9 +218,6 @@ class SettingsPanel(Adw.Bin):
             row.page_id = page_id
             sidebar_list.append(row)
 
-        sidebar_list.connect("row-selected", self._on_page_selected)
-        sidebar_list.select_row(sidebar_list.get_row_at_index(0))
-
         sidebar_scroll = Gtk.ScrolledWindow()
         sidebar_scroll.set_child(sidebar_list)
         sidebar_scroll.set_size_request(180, -1)
@@ -150,7 +225,7 @@ class SettingsPanel(Adw.Bin):
         sidebar_page = Adw.NavigationPage(title="设置")
         sidebar_page.set_child(sidebar_scroll)
 
-        # 内容区
+        # 内容区 - 创建在信号连接之前
         self._content_stack = Gtk.Stack()
         self._content_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
 
@@ -160,6 +235,10 @@ class SettingsPanel(Adw.Bin):
         self._content_stack.add_named(self._build_memory_page(), "memory")
         self._content_stack.add_named(self._build_skills_page(), "skills")
         self._content_stack.add_named(self._build_security_page(), "security")
+
+        # 信号连接放在 stack 创建之后
+        sidebar_list.connect("row-selected", self._on_page_selected)
+        sidebar_list.select_row(sidebar_list.get_row_at_index(0))
 
         content_scroll = Gtk.ScrolledWindow()
         content_scroll.set_child(self._content_stack)
@@ -188,73 +267,68 @@ class SettingsPanel(Adw.Bin):
             self._on_close_callback()
 
     def _build_llm_page(self) -> Gtk.Widget:
-        """构建 LLM 设置页面"""
+        """构建 LLM 设置页面 - 按提供商组织"""
         page = Adw.PreferencesPage()
         page.set_title("语言模型")
 
-        # 服务商选择组
-        provider_group = Adw.PreferencesGroup(title="服务商选择")
+        # 保存所有开关引用
+        self._model_switches = {}
+        self._api_key_rows = {}
 
-        # 服务商类型
-        self.category_row = Adw.ComboRow(
-            title="服务商类型",
-            model=Gtk.StringList.new([
-                "本地模型",
-                "国际服务",
-                "国内服务"
-            ]),
-        )
-        self.category_row.connect("notify::selected", self._on_category_changed)
-        provider_group.add(self.category_row)
+        # 按提供商创建组
+        for provider in PROVIDERS:
+            group = Adw.PreferencesGroup(
+                title=provider["name"],
+                description=f"本地服务 (前缀: {provider['prefix']})" if provider['prefix'] else None
+            )
 
-        # 服务商
-        self.provider_row = Adw.ComboRow(title="服务商")
-        self.provider_row.connect("notify::selected", self._on_provider_changed)
-        provider_group.add(self.provider_row)
+            # 如果需要 API Key，添加输入框
+            if provider["need_key"]:
+                key_row = Adw.PasswordEntryRow(title="API Key")
+                key_row.connect("changed", self._on_api_key_changed, provider["id"])
+                group.add(key_row)
+                self._api_key_rows[provider["id"]] = key_row
 
-        # 模型
-        self.model_row = Adw.ComboRow(title="模型")
-        provider_group.add(self.model_row)
+            # 添加该提供商的所有模型
+            for model in provider["models"]:
+                model_id = f"{provider['id']}:{model['id']}"
+                row = Adw.ActionRow(title=model["name"])
+                switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+                switch.connect("notify::active", self._on_model_toggle, model_id)
+                row.add_suffix(switch)
+                self._model_switches[model_id] = switch
+                group.add(row)
 
-        page.add(provider_group)
-
-        # 连接设置组
-        self.provider_settings_group = Adw.PreferencesGroup(title="连接设置")
-
-        # API Key
-        self.api_key_row = Adw.PasswordEntryRow(title="API Key")
-        self.api_key_row.connect("changed", self._on_setting_changed)
-        self.provider_settings_group.add(self.api_key_row)
-
-        # Base URL
-        self.base_url_row = Adw.EntryRow(title="服务器地址")
-        self.base_url_row.connect("changed", self._on_setting_changed)
-        self.provider_settings_group.add(self.base_url_row)
-
-        page.add(self.provider_settings_group)
-
-        # 生成参数组
-        params_group = Adw.PreferencesGroup(title="生成参数")
-
-        self.temperature_row = Adw.SpinRow(title="Temperature", subtitle="响应随机性")
-        self.temperature_row.set_range(0.0, 2.0)
-        self.temperature_row.set_value(0.7)
-        self.temperature_row.set_digits(2)
-        self.temperature_row.connect("notify::value", self._on_setting_changed)
-        params_group.add(self.temperature_row)
-
-        self.max_tokens_row = Adw.SpinRow(title="最大长度", subtitle="最大响应长度")
-        self.max_tokens_row.set_range(100, 128000)
-        self.max_tokens_row.set_value(4096)
-        self.max_tokens_row.connect("notify::value", self._on_setting_changed)
-        params_group.add(self.max_tokens_row)
-
-        page.add(params_group)
-
-        # 初始化服务商列表
-        self._update_provider_list("local")
+            page.add(group)
 
         return page
+
+    def _on_model_toggle(self, switch, param, model_id: str):
+        """模型启用/停用切换"""
+        if self._initializing:
+            return
+
+        enabled_models = self._config.get("enabled_models", [])
+
+        if switch.get_active():
+            if model_id not in enabled_models:
+                enabled_models.append(model_id)
+        else:
+            if model_id in enabled_models:
+                enabled_models.remove(model_id)
+
+        self._config["enabled_models"] = enabled_models
+        save_config(self._config)
+
+    def _on_api_key_changed(self, entry, provider: str):
+        """API Key 变更处理"""
+        if self._initializing:
+            return
+
+        api_keys = self._config.get("api_keys", {})
+        api_keys[provider] = entry.get_text()
+        self._config["api_keys"] = api_keys
+        save_config(self._config)
 
     def _build_general_page(self) -> Gtk.Widget:
         """构建通用设置页面"""
@@ -367,176 +441,34 @@ class SettingsPanel(Adw.Bin):
 
         return page
 
-    def _get_category_key(self, index: int) -> str:
-        keys = ["local", "international", "china"]
-        return keys[index] if 0 <= index < len(keys) else "local"
-
-    def _update_provider_list(self, category: str):
-        """更新服务商列表"""
-        category_info = PROVIDER_CATEGORIES.get(category, PROVIDER_CATEGORIES["local"])
-        providers = category_info["providers"]
-
-        model = Gtk.StringList.new([f"{p['name']} - {p['desc']}" for p in providers])
-        self.provider_row.set_model(model)
-
-        self._current_provider_ids = [p["id"] for p in providers]
-        self._update_model_list()
-        self._update_provider_settings()
-
-    def _update_model_list(self):
-        """更新模型列表"""
-        provider_id = self._get_current_provider_id()
-        models = PROVIDER_MODELS.get(provider_id, ["默认模型"])
-
-        model = Gtk.StringList.new(models)
-        self.model_row.set_model(model)
-
-    def _get_current_provider_id(self) -> str:
-        if not hasattr(self, '_current_provider_ids') or not self._current_provider_ids:
-            return "ollama"
-        selected = self.provider_row.get_selected()
-        if 0 <= selected < len(self._current_provider_ids):
-            return self._current_provider_ids[selected]
-        return "ollama"
-
-    def _update_provider_settings(self):
-        """更新服务商设置"""
-        provider_id = self._get_current_provider_id()
-
-        # 本地服务商不需要 API Key
-        is_local = provider_id in ["ollama", "vllm"]
-        self.api_key_row.set_visible(not is_local)
-
-        # 默认 URL
-        default_urls = {
-            "ollama": "http://localhost:11434",
-            "vllm": "http://localhost:8000/v1",
-            "openai": "https://api.openai.com/v1",
-            "anthropic": "https://api.anthropic.com/v1",
-            "google": "https://generativelanguage.googleapis.com/v1beta",
-            "aliyun": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "deepseek": "https://api.deepseek.com/v1",
-            "zhipu": "https://open.bigmodel.cn/api/paas/v4",
-            "moonshot": "https://api.moonshot.cn/v1",
-            "baidu": "https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat",
-            "siliconflow": "https://api.siliconflow.cn/v1",
-        }
-
-        self.base_url_row.set_text(default_urls.get(provider_id, ""))
-        self.base_url_row.set_visible(provider_id in ["ollama", "vllm"])
-
-        # 更新组标题
-        names = {
-            "ollama": "Ollama 设置",
-            "vllm": "vLLM 设置",
-            "openai": "OpenAI 设置",
-            "anthropic": "Anthropic 设置",
-            "google": "Google AI 设置",
-            "aliyun": "通义千问 设置",
-            "deepseek": "DeepSeek 设置",
-            "zhipu": "智谱AI 设置",
-            "moonshot": "Kimi 设置",
-            "baidu": "文心一言 设置",
-            "siliconflow": "硅基流动 设置",
-        }
-        self.provider_settings_group.set_title(names.get(provider_id, "连接设置"))
-
-    def _on_category_changed(self, row, param):
-        if self._initializing:
-            return
-        category = self._get_category_key(row.get_selected())
-        self._update_provider_list(category)
-        self._save_settings()
-
-    def _on_provider_changed(self, row, param):
-        if self._initializing:
-            return
-        self._update_model_list()
-        self._update_provider_settings()
-        self._save_settings()
-
-    def _on_setting_changed(self, *args):
-        if self._initializing:
-            return
-        self._save_settings()
-
     def _on_dark_mode_changed(self, switch, param):
         style_manager = Adw.StyleManager.get_default()
         if switch.get_active():
             style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
         else:
             style_manager.set_color_scheme(Adw.ColorScheme.PREFER_LIGHT)
-        self._save_settings()
-
-    def _get_selected_model(self) -> str:
-        provider_id = self._get_current_provider_id()
-        models = PROVIDER_MODELS.get(provider_id, [])
-        if models:
-            selected = self.model_row.get_selected()
-            if 0 <= selected < len(models):
-                return models[selected]
-        return ""
+        save_config(self._config)
 
     def _load_settings(self):
         """加载保存的设置"""
-        llm_config = self._config.get("llm", {})
+        # 加载启用的模型
+        enabled_models = self._config.get("enabled_models", [])
 
-        # 恢复服务商类型
-        provider = llm_config.get("provider", "ollama")
-        category_map = {
-            "ollama": 0, "vllm": 0,
-            "openai": 1, "anthropic": 1, "google": 1,
-            "aliyun": 2, "deepseek": 2, "zhipu": 2, "moonshot": 2,
-            "baidu": 2, "siliconflow": 2
-        }
-        cat_idx = category_map.get(provider, 0)
-        self.category_row.set_selected(cat_idx)
+        # 更新所有模型开关
+        for model_id, switch in self._model_switches.items():
+            switch.set_active(model_id in enabled_models)
 
-        # 恢复 API Key
-        if llm_config.get("api_key"):
-            self.api_key_row.set_text(llm_config["api_key"])
+        # 加载 API Keys
+        api_keys = self._config.get("api_keys", {})
+        for provider_id, key_row in self._api_key_rows.items():
+            if api_keys.get(provider_id):
+                key_row.set_text(api_keys[provider_id])
 
-        # 恢复参数
-        params = llm_config.get("params", {})
-        if params.get("temperature"):
-            self.temperature_row.set_value(params["temperature"])
-        if params.get("max_tokens"):
-            self.max_tokens_row.set_value(params["max_tokens"])
+    def get_enabled_models(self) -> list:
+        """获取已启用的模型列表"""
+        return self._config.get("enabled_models", [])
 
-    def _save_settings(self):
-        """保存设置"""
-        if self._initializing:
-            return
-
-        config = {
-            "llm": {
-                "provider": self._get_current_provider_id(),
-                "model": self._get_selected_model(),
-                "api_key": self.api_key_row.get_text() if self.api_key_row.get_visible() else "",
-                "base_url": self.base_url_row.get_text() if self.base_url_row.get_visible() else "",
-                "params": {
-                    "temperature": self.temperature_row.get_value(),
-                    "max_tokens": int(self.max_tokens_row.get_value()),
-                }
-            },
-            "general": {}
-        }
-
-        try:
-            save_config(config)
-            logger.debug("Settings saved")
-        except Exception as e:
-            logger.error(f"Failed to save settings: {e}")
-
-    def get_llm_config(self) -> Dict[str, Any]:
-        """获取当前 LLM 配置"""
-        return {
-            "provider": self._get_current_provider_id(),
-            "model": self._get_selected_model(),
-            "api_key": self.api_key_row.get_text() if self.api_key_row.get_visible() else "",
-            "base_url": self.base_url_row.get_text() if self.base_url_row.get_visible() else "",
-            "params": {
-                "temperature": self.temperature_row.get_value(),
-                "max_tokens": int(self.max_tokens_row.get_value()),
-            }
-        }
+    def get_api_key(self, provider: str) -> str:
+        """获取指定服务商的 API Key"""
+        api_keys = self._config.get("api_keys", {})
+        return api_keys.get(provider, "")

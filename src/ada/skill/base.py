@@ -48,9 +48,13 @@ class SkillContext:
     Contains everything a skill needs to execute.
     """
     # Input
-    user_input: str                      # Original user input
-    intent: Dict[str, Any]               # Parsed intent
-    entities: Dict[str, Any]             # Extracted entities
+    user_input: str = ""                 # Original user input
+    intent: Dict[str, Any] = field(default_factory=dict)               # Parsed intent
+    entities: Dict[str, Any] = field(default_factory=dict)             # Extracted entities
+
+    # Conversation
+    conversation_history: List[Any] = field(default_factory=list)  # List[Message]
+    user_preferences: Dict[str, Any] = field(default_factory=dict)
 
     # Services
     executor: Any = None                 # HybridExecutor

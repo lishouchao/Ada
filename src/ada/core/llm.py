@@ -28,6 +28,21 @@ class Message:
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
 
+    @classmethod
+    def system(cls, content: str) -> "Message":
+        """Create a system message"""
+        return cls(role="system", content=content)
+
+    @classmethod
+    def user(cls, content: str) -> "Message":
+        """Create a user message"""
+        return cls(role="user", content=content)
+
+    @classmethod
+    def assistant(cls, content: str) -> "Message":
+        """Create an assistant message"""
+        return cls(role="assistant", content=content)
+
     def to_dict(self) -> Dict[str, Any]:
         result = {"role": self.role, "content": self.content}
         if self.name:

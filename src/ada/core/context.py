@@ -19,6 +19,14 @@ class AgentMode(Enum):
     DEBUG = "debug"                 # Debug mode with verbose logging
 
 
+class AgentStatus(Enum):
+    """Agent status"""
+    IDLE = "idle"
+    THINKING = "thinking"
+    EXECUTING = "executing"
+    ERROR = "error"
+
+
 @dataclass
 class LLMConfig:
     """LLM provider configuration"""
@@ -94,6 +102,9 @@ class AgentConfig:
 
     # Platform settings
     platform: str = "gnome"  # gnome, kde, nebula
+
+    # Skills settings
+    skills: Dict[str, Any] = field(default_factory=lambda: {"directories": []})
 
     @classmethod
     def from_file(cls, path: Path) -> "AgentConfig":
@@ -211,6 +222,9 @@ class AgentState:
     requires_confirmation: bool = False
     confirmation_message: str = ""
 
+    # Conversation history
+    conversation_history: List[Any] = field(default_factory=list)  # List[Message]
+
     def add_action(self, action_type: str, params: Dict, result: Any):
         """Record an action taken"""
         self.actions_taken.append({
@@ -243,6 +257,7 @@ class AgentContext:
 
     config: AgentConfig
     state: AgentState
+    status: AgentStatus = AgentStatus.IDLE
 
     # Services (injected)
     llm_client: Any = None  # LLMClient
@@ -255,6 +270,27 @@ class AgentContext:
     # Platform adapters
     perception: Any = None  # PerceptionAdapter
     platform_adapter: Any = None  # PlatformAdapter
+
+    # Conversation
+    conversation_history: List[Any] = field(default_factory=list)  # List[Message]
+
+    # User preferences
+    user_preferences: Dict[str, Any] = field(default_factory=dict)
+
+    # Processing state (used by agent.py)
+    current_input: str = ""
+    current_intent: Any = None  # Intent
+    entities: Dict[str, Any] = field(default_factory=dict)
+    matched_skills: List[Any] = field(default_factory=list)  # List[Tuple[Skill, float]]
+    selected_skill: Any = None  # Skill
+    plan: Any = None  # TaskPlan
+    execution_results: List[Any] = field(default_factory=list)  # List[SkillResult]
+    response: str = ""
+    requires_followup: bool = False
+
+    def set_state(self, status: AgentStatus):
+        """Set agent status"""
+        self.status = status
 
     @classmethod
     def create(

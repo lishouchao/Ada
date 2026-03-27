@@ -156,24 +156,39 @@ class Application(Adw.Application):
             font-weight: bold;
         }
 
+        .ada-message-row {
+            padding: 4px 12px;
+        }
+
         .ada-message {
-            padding: 12px;
-            border-radius: 12px;
-            margin: 4px;
+            padding: 10px 14px;
+            border-radius: 16px;
+            margin: 2px;
         }
 
         .ada-user-message {
-            background: @accent_bg_color;
-            color: @accent_fg_color;
+            background: #81D8D0;
+            color: #1a1a1a;
+            border-bottom-right-radius: 4px;
         }
 
         .ada-assistant-message {
             background: @card_bg_color;
+            border-bottom-left-radius: 4px;
+            border: 1px solid @borders;
         }
 
         .ada-thinking {
             font-style: italic;
             color: @insensitive_fg_color;
+            font-size: 0.9em;
+            padding: 8px 12px;
+            border-left: 2px solid @accent_bg_color;
+            margin-top: 6px;
+        }
+
+        .ada-message-list {
+            background: transparent;
         }
         """
 

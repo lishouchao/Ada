@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 import json
 
-from ada.core.context import AgentContext, AgentState, AgentConfig, AgentMode
+from ada.core.context import AgentContext, AgentState, AgentConfig, AgentStatus, AgentMode
 from ada.core.graph import StateGraph, Node, CompiledGraph
 from ada.core.executor import Executor
 from ada.core.planner import Planner, Task, TaskPlan
@@ -39,7 +39,7 @@ class AdaAgent:
 
     def __init__(self, config: AgentConfig = None):
         self.config = config or AgentConfig()
-        self.context = AgentContext(config=self.config)
+        self.context = AgentContext.create(config=self.config)
 
         # Core components
         self.llm: Optional[LLMClient] = None
@@ -63,6 +63,7 @@ class AdaAgent:
         self._initialized = False
         self._running = False
         self._conversation_history: List[Message] = []
+        self._graph = None
 
         # Callbacks
         self._on_response_callbacks: List[Callable] = []
@@ -89,6 +90,9 @@ class AdaAgent:
             # Load skills
             await self._load_skills()
 
+            # Register execution backends
+            await self._init_backends()
+
             # Start event bus
             await self.event_bus.start()
 
@@ -96,48 +100,50 @@ class AdaAgent:
             self._graph = self._build_graph()
 
             self._initialized = True
-            self.context.set_state(AgentState.IDLE)
+            self.context.set_state(AgentStatus.IDLE)
 
             logger.info("Ada agent initialized successfully")
             return True
 
         except Exception as e:
             logger.error(f"Failed to initialize agent: {e}")
-            self.context.set_state(AgentState.ERROR)
+            self.context.set_state(AgentStatus.ERROR)
             return False
 
     async def _init_llm(self):
         """Initialize LLM client"""
         llm_config = self.config.llm
 
-        self.llm = LLMClient(
-            backend=llm_config.get("backend", "ollama"),
-            model=llm_config.get("model", "llama3.2"),
-            **llm_config.get("params", {})
+        self.llm = LLMClient.from_provider(
+            provider_id=llm_config.provider,
+            model=llm_config.model,
+            api_key=llm_config.api_key or None,
+            base_url=llm_config.base_url or None,
         )
 
         # Test connection
         try:
-            if await self.llm.is_available():
-                logger.info(f"LLM initialized: {llm_config.get('backend')}")
-            else:
-                logger.warning("LLM not available, using fallback mode")
+            # Simple test - just log that we initialized
+            logger.info(f"LLM initialized: {llm_config.provider}")
         except Exception as e:
             logger.warning(f"LLM check failed: {e}")
 
     async def _init_memory(self):
         """Initialize memory store"""
-        memory_config = self.config.memory
-
-        db_path = Path(memory_config.get(
-            "database_path",
-            "~/.local/share/ada/memory.db"
-        )).expanduser()
-
+        db_path = Path(self.config.memory_db_path).expanduser()
         db_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.memory_store = MemoryStore(db_path)
         logger.info(f"Memory store initialized: {db_path}")
+
+    async def _init_backends(self):
+        """Initialize execution backends"""
+        from ada.core.executor import CLIBackend
+
+        # Register CLI backend
+        cli_backend = CLIBackend()
+        self.executor.register_backend(cli_backend)
+        logger.info("CLI execution backend registered")
 
     async def _load_skills(self):
         """Load all skills"""
@@ -160,13 +166,13 @@ class AdaAgent:
 
     def _build_graph(self) -> CompiledGraph:
         """Build the agent state graph"""
-        graph = StateGraph(AgentContext)
+        graph = StateGraph[AgentContext]()
 
-        # Add nodes
-        graph.add_node(Node("analyze", self._analyze_node))
-        graph.add_node(Node("plan", self._plan_node))
-        graph.add_node(Node("execute", self._execute_node))
-        graph.add_node(Node("respond", self._respond_node))
+        # Add nodes (pass name and function, StateGraph will wrap in FunctionNode)
+        graph.add_node("analyze", self._analyze_node)
+        graph.add_node("plan", self._plan_node)
+        graph.add_node("execute", self._execute_node)
+        graph.add_node("respond", self._respond_node)
 
         # Set entry point
         graph.set_entry_point("analyze")
@@ -177,7 +183,7 @@ class AdaAgent:
         graph.add_edge("execute", "respond")
 
         # Conditional edge from respond
-        graph.add_conditional_edge(
+        graph.add_conditional_edges(
             "respond",
             self._should_continue,
             {
@@ -186,11 +192,14 @@ class AdaAgent:
             }
         )
 
+        # Set finish point
+        graph.set_finish_point("__end__")
+
         return graph.compile()
 
     async def _analyze_node(self, context: AgentContext) -> AgentContext:
         """Analyze user input"""
-        self.context.set_state(AgentState.THINKING)
+        self.context.set_state(AgentStatus.THINKING)
 
         # Notify thinking
         for callback in self._on_thinking_callbacks:
@@ -206,12 +215,17 @@ class AdaAgent:
         )
 
         context.current_intent = intent_result.intent
-        context.entities = intent_result.entities
+
+        # Convert entities from Intent (Dict[str, Entity]) to Dict[str, Any]
+        if intent_result.intent and intent_result.intent.entities:
+            context.entities = {k: v.value for k, v in intent_result.intent.entities.items()}
+        else:
+            context.entities = {}
 
         # Find matching skills
         skill_context = SkillContext(
             user_input=context.current_input,
-            entities=context.entities or {},
+            entities=context.entities,
             conversation_history=context.conversation_history,
             user_preferences=context.user_preferences,
             executor=self.executor,
@@ -231,34 +245,45 @@ class AdaAgent:
                 pass
 
         # Create plan based on intent and skills
+        import time
+        import uuid
+
         if context.matched_skills:
             # Use best matching skill
             best_skill, score = context.matched_skills[0]
             context.selected_skill = best_skill
             context.plan = TaskPlan(
+                id=str(uuid.uuid4())[:8],
+                intent_id=str(uuid.uuid4())[:8],
                 tasks=[Task(
                     id="1",
+                    name=f"execute_{best_skill.metadata.id}",
                     description=f"Execute {best_skill.metadata.name}",
                     action="skill.execute",
                     params={"skill_id": best_skill.metadata.id}
-                )]
+                )],
+                created_at=time.time()
             )
         else:
             # No skill matched, use LLM for response
             context.selected_skill = None
             context.plan = TaskPlan(
+                id=str(uuid.uuid4())[:8],
+                intent_id=str(uuid.uuid4())[:8],
                 tasks=[Task(
                     id="1",
+                    name="generate_response",
                     description="Generate response",
                     action="llm.respond"
-                )]
+                )],
+                created_at=time.time()
             )
 
         return context
 
     async def _execute_node(self, context: AgentContext) -> AgentContext:
         """Execute the plan"""
-        self.context.set_state(AgentState.EXECUTING)
+        self.context.set_state(AgentStatus.EXECUTING)
 
         results = []
 
@@ -322,7 +347,7 @@ class AdaAgent:
             except Exception:
                 pass
 
-        self.context.set_state(AgentState.IDLE)
+        self.context.set_state(AgentStatus.IDLE)
         return context
 
     def _should_continue(self, context: AgentContext) -> str:
@@ -397,7 +422,7 @@ class AdaAgent:
             memory_type=MemoryType.CONVERSATION,
             metadata={"role": "user"}
         )
-        await self.memory_store.save(user_memory)
+        self.memory_store.save(user_memory)
 
         # Store assistant response
         assistant_memory = Memory(
@@ -405,7 +430,7 @@ class AdaAgent:
             memory_type=MemoryType.CONVERSATION,
             metadata={"role": "assistant"}
         )
-        await self.memory_store.save(assistant_memory)
+        self.memory_store.save(assistant_memory)
 
     # Public API
 
@@ -434,7 +459,7 @@ class AdaAgent:
 
         # Run through state graph
         try:
-            result = await self._graph.invoke(self.context)
+            result = await self._graph.run(self.context)
 
             return SkillResult.ok(
                 message=result.response or "处理完成",

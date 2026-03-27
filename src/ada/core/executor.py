@@ -10,7 +10,7 @@ This ensures maximum efficiency while maintaining compatibility.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Callable, TypeVar
+from typing import Any, Dict, List, Optional, Callable, TypeVar, Union
 from enum import Enum
 import asyncio
 import time
@@ -31,6 +31,7 @@ class ExecutionResult:
     path: ExecutionPath
     output: Any
     error: Optional[str] = None
+    message: str = ""  # Human-readable message
     duration_ms: int = 0
     fallback_used: bool = False
     metadata: Dict[str, Any] = field(default_factory=dict)
@@ -116,19 +117,30 @@ class Executor:
 
     async def execute(
         self,
-        action: Action,
+        action: Union[Action, Dict[str, Any]],
         preferred: ExecutionPath = None
     ) -> ExecutionResult:
         """
         Execute an action using the optimal path.
 
         Args:
-            action: The action to execute
+            action: The action to execute (Action object or dict)
             preferred: Optional preferred execution path
 
         Returns:
             ExecutionResult with success status and output
         """
+        # Convert dict to Action if needed
+        if isinstance(action, dict):
+            action = Action(
+                type=action.get("type", ""),
+                target=action.get("target"),
+                params=action.get("params", {}),
+                fallback_paths=action.get("fallback_paths", []),
+                timeout=action.get("timeout", 30.0),
+                retry_count=action.get("retry_count", 1)
+            )
+
         # Run before hooks
         for hook in self._before_hooks:
             hook(action)
@@ -240,3 +252,187 @@ class ActionType:
     WEB_SEARCH = "web.search"
     WEB_OPEN = "web.open"
     WEB_FILL = "web.fill"
+
+
+class CLIBackend(ExecutionBackend):
+    """
+    CLI-based execution backend.
+
+    Uses command-line tools to execute actions.
+    """
+
+    @property
+    def path(self) -> ExecutionPath:
+        return ExecutionPath.CLI
+
+    async def can_execute(self, action: Action) -> bool:
+        """Check if this backend can handle the action"""
+        supported = {
+            "app.launch", "app.close",
+            "file.read", "file.write", "file.delete", "file.list",
+            "system.info"
+        }
+        return action.type in supported
+
+    async def execute(self, action: Action) -> ExecutionResult:
+        """Execute action via CLI"""
+        import asyncio
+        import shutil
+
+        try:
+            if action.type == "app.launch":
+                app_name = action.params.get("name", "")
+                return await self._launch_app(app_name)
+
+            elif action.type == "app.close":
+                app_name = action.params.get("name", "")
+                return await self._close_app(app_name)
+
+            elif action.type == "file.list":
+                path = action.params.get("path", ".")
+                return await self._list_files(path)
+
+            elif action.type == "system.info":
+                return await self._system_info()
+
+            else:
+                return ExecutionResult(
+                    success=False,
+                    path=self.path,
+                    output=None,
+                    error=f"Unsupported action: {action.type}"
+                )
+
+        except Exception as e:
+            return ExecutionResult(
+                success=False,
+                path=self.path,
+                output=None,
+                error=str(e)
+            )
+
+    async def _launch_app(self, app_name: str) -> ExecutionResult:
+        """Launch an application"""
+        import subprocess
+        import shutil
+
+        # 常见应用名映射
+        app_map = {
+            "计算器": ["gnome-calculator", "calculator"],
+            "calculator": ["gnome-calculator", "calculator"],
+            "浏览器": ["firefox", "google-chrome", "chromium"],
+            "browser": ["firefox", "google-chrome", "chromium"],
+            "firefox": ["firefox"],
+            "chrome": ["google-chrome", "chromium"],
+            "终端": ["gnome-terminal", "konsole", "xterm"],
+            "terminal": ["gnome-terminal", "konsole", "xterm"],
+            "文件": ["nautilus", "dolphin", "thunar"],
+            "files": ["nautilus", "dolphin", "thunar"],
+            "设置": ["gnome-control-center"],
+            "settings": ["gnome-control-center"],
+        }
+
+        # 查找应用
+        app_name_lower = app_name.lower()
+        commands = app_map.get(app_name_lower, [app_name_lower])
+
+        for cmd in commands:
+            if shutil.which(cmd):
+                # 异步启动应用
+                subprocess.Popen([cmd], start_new_session=True)
+                return ExecutionResult(
+                    success=True,
+                    path=self.path,
+                    output={"app": cmd},
+                    message=f"已启动 {cmd}"
+                )
+
+        # 尝试直接用输入名称
+        if shutil.which(app_name_lower):
+            subprocess.Popen([app_name_lower], start_new_session=True)
+            return ExecutionResult(
+                success=True,
+                path=self.path,
+                output={"app": app_name_lower},
+                message=f"已启动 {app_name_lower}"
+            )
+
+        return ExecutionResult(
+            success=False,
+            path=self.path,
+            output=None,
+            error=f"未找到应用: {app_name}"
+        )
+
+    async def _close_app(self, app_name: str) -> ExecutionResult:
+        """Close an application"""
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["pkill", "-f", app_name],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                return ExecutionResult(
+                    success=True,
+                    path=self.path,
+                    output={"app": app_name},
+                    message=f"已关闭 {app_name}"
+                )
+            else:
+                return ExecutionResult(
+                    success=False,
+                    path=self.path,
+                    output=None,
+                    error=f"未找到运行中的应用: {app_name}"
+                )
+        except Exception as e:
+            return ExecutionResult(
+                success=False,
+                path=self.path,
+                output=None,
+                error=str(e)
+            )
+
+    async def _list_files(self, path: str) -> ExecutionResult:
+        """List files in directory"""
+        import os
+
+        try:
+            path = os.path.expanduser(path)
+            files = os.listdir(path)
+            return ExecutionResult(
+                success=True,
+                path=self.path,
+                output={"files": files, "path": path},
+                message=f"找到 {len(files)} 个文件"
+            )
+        except Exception as e:
+            return ExecutionResult(
+                success=False,
+                path=self.path,
+                output=None,
+                error=str(e)
+            )
+
+    async def _system_info(self) -> ExecutionResult:
+        """Get system information"""
+        import platform
+        import os
+
+        info = {
+            "system": platform.system(),
+            "node": platform.node(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "user": os.environ.get("USER", "unknown"),
+        }
+        return ExecutionResult(
+            success=True,
+            path=self.path,
+            output=info,
+            message=f"{info['system']} {info['release']}"
+        )

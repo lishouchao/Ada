@@ -20,11 +20,12 @@ __version__ = "0.1.0"
 __author__ = "NebulaOS Team"
 __license__ = "GPL-3.0-or-later"
 
-from ada.core import Agent, AgentState, AgentConfig
+from ada.core import AgentState, AgentConfig
+from ada.core.agent import AdaAgent
 from ada.skill import Skill, SkillRegistry, SkillContext, SkillResult
 
 __all__ = [
-    "Agent",
+    "AdaAgent",
     "AgentState",
     "AgentConfig",
     "Skill",

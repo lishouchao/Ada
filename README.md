@@ -124,6 +124,18 @@ ada skill file.organizer "organize downloads"
 ada-gui
 ```
 
+### 开发模式启动
+
+在开发过程中，可以直接从源码启动 GTK 界面：
+
+```bash
+# 进入 UI 目录
+cd Ada/ui/gtk
+
+# 设置 PYTHONPATH 并启动应用
+PYTHONPATH=. python3 -m ada.ui.app
+```
+
 ## Development
 
 ### Project Structure
